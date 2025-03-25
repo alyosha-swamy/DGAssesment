@@ -10,6 +10,7 @@ import pandas as pd
 from wordcloud import WordCloud
 import base64
 from io import BytesIO
+import networkx as nx
 
 # Add parent directory to path to import config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,18 +34,31 @@ class ForensicReportGenerator:
             'info': '#9b59b6'
         }
         
-    def _create_sentiment_chart(self, user_data):
+        # Configure PDF styles
+        self.section_font_size = 12
+        self.text_font_size = 10
+        self.line_height = 6
+        
+    def _create_sentiment_chart(self, sentiment_data):
         """Create sentiment distribution chart"""
-        sentiment_dist = user_data.get('sentiment_distribution', {})
+        # Extract sentiment data
+        avg_sentiment = sentiment_data.get('average_sentiment', 0)
+        sentiment_dist = sentiment_data.get('sentiment_distribution', {
+            'Positive': 0,
+            'Neutral': 0,
+            'Negative': 0
+        })
         
         # Create data for chart
         labels = list(sentiment_dist.keys())
         values = list(sentiment_dist.values())
         
-        # Create pie chart
-        plt.figure(figsize=(6, 4))
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        
+        # Pie chart for sentiment distribution
         colors = ['#2ecc71', '#3498db', '#e74c3c']
-        plt.pie(
+        ax1.pie(
             values, 
             labels=labels, 
             colors=colors,
@@ -52,8 +66,14 @@ class ForensicReportGenerator:
             startangle=90,
             wedgeprops={'edgecolor': 'white', 'linewidth': 1}
         )
-        plt.axis('equal')
-        plt.title('Sentiment Distribution')
+        ax1.set_title('Sentiment Distribution')
+        
+        # Gauge chart for average sentiment
+        sentiment_gauge = (avg_sentiment + 1) / 2  # Convert from [-1,1] to [0,1]
+        gauge_colors = [(1-sentiment_gauge, sentiment_gauge, 0, 0.8)]
+        ax2.pie([sentiment_gauge, 1-sentiment_gauge], colors=[gauge_colors[0], 'lightgray'], 
+                startangle=90, counterclock=False)
+        ax2.set_title(f'Average Sentiment: {avg_sentiment:.2f}')
         
         # Save to BytesIO
         img_bytes = BytesIO()
@@ -63,47 +83,44 @@ class ForensicReportGenerator:
         
         return img_bytes
     
-    def _create_posting_timeline(self, user_data):
+    def _create_posting_timeline(self, posts):
         """Create timeline of posts"""
-        posts = user_data.get('posts', [])
-        
         if not posts:
             return None
             
-        # Extract timestamps and sentiment scores
-        timestamps = [post.get('timestamp') for post in posts]
-        dates = [datetime.fromtimestamp(ts) for ts in timestamps]
+        # Extract timestamps and engagement metrics
+        data = []
+        for post in posts:
+            timestamp = post.get('timestamp')
+            if timestamp:
+                data.append({
+                    'date': datetime.fromtimestamp(timestamp),
+                    'likes': post.get('likes', 0),
+                    'shares': post.get('shares', 0),
+                    'comments': post.get('comments', 0)
+                })
         
-        # Create a dataframe for easy plotting
-        df = pd.DataFrame({
-            'date': dates,
-            'sentiment': [post.get('sentiment_analysis', {}).get('sentiment_score', 0) for post in posts]
-        })
+        if not data:
+            return None
         
-        # Sort by date
+        # Create a dataframe
+        df = pd.DataFrame(data)
         df = df.sort_values('date')
         
         # Plot
-        plt.figure(figsize=(8, 4))
-        plt.plot(df['date'], df['sentiment'], marker='o', linestyle='-', color=self.colors['primary'])
+        plt.figure(figsize=(10, 5))
         
-        # Add a horizontal line at 0
-        plt.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
+        # Plot engagement metrics
+        plt.plot(df['date'], df['likes'], 'o-', label='Likes', color=self.colors['primary'])
+        plt.plot(df['date'], df['shares'], 's-', label='Shares', color=self.colors['success'])
+        plt.plot(df['date'], df['comments'], '^-', label='Comments', color=self.colors['warning'])
         
-        # Format
-        plt.title('Sentiment Over Time')
+        plt.title('Engagement Over Time')
         plt.xlabel('Date')
-        plt.ylabel('Sentiment Score')
+        plt.ylabel('Count')
+        plt.legend()
         plt.grid(True, alpha=0.3)
-        
-        # Color the markers based on sentiment
-        for i, sentiment in enumerate(df['sentiment']):
-            if sentiment > 0:
-                plt.plot(df['date'].iloc[i], sentiment, 'o', color='green', markersize=8)
-            elif sentiment < 0:
-                plt.plot(df['date'].iloc[i], sentiment, 'o', color='red', markersize=8)
-            else:
-                plt.plot(df['date'].iloc[i], sentiment, 'o', color='blue', markersize=8)
+        plt.xticks(rotation=45)
         
         # Save to BytesIO
         img_bytes = BytesIO()
@@ -113,48 +130,57 @@ class ForensicReportGenerator:
         
         return img_bytes
     
-    def _create_wordcloud(self, user_data):
-        """Create wordcloud from post keywords"""
-        posts = user_data.get('posts', [])
-        keywords = user_data.get('top_keywords', [])
+    def _create_wordcloud(self, sentiment_data, posts):
+        """Create wordcloud from post content and keywords"""
+        # Get keywords from sentiment analysis
+        keywords = sentiment_data.get('top_keywords', [])
         
-        if not posts and not keywords:
+        # Get text from posts
+        post_texts = [post.get('content', '') for post in posts if post.get('content')]
+        
+        if not keywords and not post_texts:
             return None
             
-        # Collect all text from posts
-        all_text = " ".join([post.get('content', '') for post in posts])
+        # Combine all text
+        all_text = " ".join(post_texts)
         
-        if not all_text and not keywords:
-            return None
+        # Create word frequencies
+        word_freq = {}
+        
+        # Add keywords with high frequency
+        for keyword in keywords:
+            word_freq[keyword] = 100
             
-        # If we have keywords with frequency, use those
-        if keywords:
-            # Convert to dictionary with frequencies (for prototype, use equal frequencies)
-            word_freq = {word: 10 for word in keywords}
-        else:
-            # Use the full text
-            word_freq = None
+        # Add words from posts
+        if all_text:
+            # Generate wordcloud
+            wordcloud = WordCloud(
+                width=800, 
+                height=400, 
+                background_color='white',
+                colormap='viridis',
+                max_words=100,
+                prefer_horizontal=0.7
+            ).generate(all_text)
             
-        # Generate wordcloud
+            # Update frequencies with actual text
+            word_freq.update(wordcloud.words_)
+        
+        # Generate final wordcloud
         wordcloud = WordCloud(
-            width=400, 
-            height=200, 
+            width=800,
+            height=400,
             background_color='white',
             colormap='viridis',
-            max_words=50
-        ).generate_from_frequencies(word_freq) if word_freq else WordCloud(
-            width=400,
-            height=200,
-            background_color='white',
-            colormap='viridis',
-            max_words=50
-        ).generate(all_text)
+            max_words=100,
+            prefer_horizontal=0.7
+        ).generate_from_frequencies(word_freq)
         
         # Create plot
-        plt.figure(figsize=(6, 3))
+        plt.figure(figsize=(10, 5))
         plt.imshow(wordcloud, interpolation='bilinear')
         plt.axis('off')
-        plt.title('Common Keywords')
+        plt.title('Content Analysis - Key Terms')
         
         # Save to BytesIO
         img_bytes = BytesIO()
@@ -163,13 +189,26 @@ class ForensicReportGenerator:
         img_bytes.seek(0)
         
         return img_bytes
+    
+    def _create_network_graph(self, network_results):
+        """Create network visualization"""
+        if not network_results or 'image' not in network_results:
+            return None
+            
+        # Convert base64 image to BytesIO
+        try:
+            img_data = base64.b64decode(network_results['image'])
+            img_bytes = BytesIO(img_data)
+            return img_bytes
+        except:
+            return None
     
     def generate_report(self, user_data, analysis_results, network_results=None, filename=None):
         """
         Generate a PDF forensic report
         
         Args:
-            user_data (dict): User data from the search API
+            user_data (dict): User profile data
             analysis_results (dict): Results from sentiment analysis
             network_results (dict): Results from network analysis (optional)
             filename (str): Output filename (optional)
@@ -179,7 +218,7 @@ class ForensicReportGenerator:
         """
         if not filename:
             timestamp = int(time.time())
-            username = user_data.get('user', 'unknown')
+            username = user_data.get('username', 'unknown')
             platform = user_data.get('platform', 'unknown')
             filename = f"forensic_report_{username}_{platform}_{timestamp}.pdf"
             
@@ -189,266 +228,105 @@ class ForensicReportGenerator:
         pdf = FPDF()
         pdf.add_page()
         
-        # Set up fonts
-        pdf.set_font('Arial', 'B', 16)
-        
         # Title
+        pdf.set_font('Arial', 'B', 16)
         pdf.cell(190, 10, 'Social Media Forensic Analysis Report', 0, 1, 'C')
         
         # Add timestamp
         pdf.set_font('Arial', 'I', 10)
         report_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        pdf.cell(190, 6, f'Generated on: {report_date}', 0, 1, 'C')
-        
-        # User Information Section
+        pdf.cell(190, 5, f'Generated on: {report_date}', 0, 1, 'C')
         pdf.ln(5)
-        pdf.set_font('Arial', 'B', 14)
-        pdf.set_fill_color(240, 240, 240)
-        pdf.cell(190, 10, 'User Information', 0, 1, 'L', 1)
         
-        # User details
-        pdf.set_font('Arial', '', 11)
-        
-        username = user_data.get('user', 'Unknown')
-        platform = user_data.get('platform', 'Unknown')
-        profile = user_data.get('profile', {})
-        
+        # User Profile Section
+        pdf.set_font('Arial', 'B', self.section_font_size)
+        pdf.cell(190, self.line_height, 'User Profile', 0, 1, 'L')
         pdf.ln(2)
-        pdf.cell(60, 6, 'Username:', 0, 0, 'L')
-        pdf.cell(130, 6, username, 0, 1, 'L')
         
-        pdf.cell(60, 6, 'Platform:', 0, 0, 'L')
-        pdf.cell(130, 6, platform, 0, 1, 'L')
+        pdf.set_font('Arial', '', self.text_font_size)
+        profile_data = [
+            ('Username', user_data.get('username', 'N/A')),
+            ('Platform', user_data.get('platform', 'N/A')),
+            ('Followers', str(user_data.get('followers', 'N/A'))),
+            ('Following', str(user_data.get('following', 'N/A'))),
+            ('Bio', user_data.get('bio', 'N/A'))
+        ]
         
-        pdf.cell(60, 6, 'Account Created:', 0, 0, 'L')
-        pdf.cell(130, 6, profile.get('created_date', 'Unknown'), 0, 1, 'L')
+        for label, value in profile_data:
+            pdf.cell(40, self.line_height, label + ':', 0, 0, 'L')
+            pdf.cell(150, self.line_height, str(value), 0, 1, 'L')
         
-        pdf.cell(60, 6, 'Followers:', 0, 0, 'L')
-        pdf.cell(130, 6, str(profile.get('followers', 'Unknown')), 0, 1, 'L')
-        
-        pdf.cell(60, 6, 'Following:', 0, 0, 'L')
-        pdf.cell(130, 6, str(profile.get('following', 'Unknown')), 0, 1, 'L')
-        
-        pdf.cell(60, 6, 'Verified Account:', 0, 0, 'L')
-        pdf.cell(130, 6, 'Yes' if profile.get('verified', False) else 'No', 0, 1, 'L')
-        
-        pdf.cell(60, 6, 'Bio:', 0, 0, 'L')
-        pdf.cell(130, 6, profile.get('bio', 'None'), 0, 1, 'L')
-        
-        # Suspicious account flag
-        if profile.get('is_suspicious', False):
-            pdf.ln(2)
-            pdf.set_text_color(255, 0, 0)
-            pdf.set_font('Arial', 'B', 11)
-            pdf.cell(190, 6, 'WARNING: Potentially suspicious account detected', 0, 1, 'L')
-            pdf.set_text_color(0, 0, 0)
-            pdf.set_font('Arial', '', 11)
-        
-        # Activity Summary Section
         pdf.ln(5)
-        pdf.set_font('Arial', 'B', 14)
-        pdf.set_fill_color(240, 240, 240)
-        pdf.cell(190, 10, 'Activity Summary', 0, 1, 'L', 1)
         
-        # Activity details
-        pdf.set_font('Arial', '', 11)
-        posts = user_data.get('posts', [])
-        
+        # Sentiment Analysis Section
+        pdf.set_font('Arial', 'B', self.section_font_size)
+        pdf.cell(190, self.line_height, 'Sentiment Analysis', 0, 1, 'L')
         pdf.ln(2)
-        pdf.cell(60, 6, 'Total Posts Analyzed:', 0, 0, 'L')
-        pdf.cell(130, 6, str(len(posts)), 0, 1, 'L')
         
-        pdf.cell(60, 6, 'Average Sentiment Score:', 0, 0, 'L')
-        avg_sentiment = analysis_results.get('average_sentiment', 0)
-        pdf.cell(130, 6, f"{avg_sentiment:.2f}", 0, 1, 'L')
-        
-        # Sentiment distribution chart
-        sentiment_chart = self._create_sentiment_chart(analysis_results)
+        # Add sentiment chart
+        sentiment_chart = self._create_sentiment_chart(analysis_results.get('sentiment_analysis', {}))
         if sentiment_chart:
-            pdf.ln(5)
-            pdf.cell(190, 6, 'Sentiment Distribution:', 0, 1, 'L')
-            
-            # Get the binary data and encode it for the PDF
-            img_str = base64.b64encode(sentiment_chart.getvalue()).decode('ascii')
-            pdf.image(sentiment_chart, x=50, y=None, w=100)
-            
-        # Timeline chart
+            pdf.image(sentiment_chart, x=10, w=190)
+        
         pdf.ln(5)
-        pdf.cell(190, 6, 'Posting Timeline:', 0, 1, 'L')
-        timeline_chart = self._create_posting_timeline(user_data)
-        if timeline_chart:
-            pdf.image(timeline_chart, x=25, y=None, w=160)
-            
-        # Wordcloud
-        pdf.ln(5)
-        pdf.cell(190, 6, 'Common Keywords:', 0, 1, 'L')
-        wordcloud_chart = self._create_wordcloud(analysis_results)
-        if wordcloud_chart:
-            pdf.image(wordcloud_chart, x=50, y=None, w=100)
         
-        # Anomalies Section
-        pdf.ln(5)
-        pdf.set_font('Arial', 'B', 14)
-        pdf.set_fill_color(240, 240, 240)
-        pdf.cell(190, 10, 'Detected Anomalies', 0, 1, 'L', 1)
-        
-        # Anomalies details
-        anomalies = analysis_results.get('anomalies', [])
-        if anomalies:
-            pdf.set_font('Arial', '', 11)
-            for i, anomaly in enumerate(anomalies):
-                pdf.ln(2)
-                pdf.set_font('Arial', 'B', 11)
-                pdf.cell(190, 6, f"Anomaly {i+1}: {anomaly.get('type', 'Unknown')}", 0, 1, 'L')
-                
-                pdf.set_font('Arial', '', 11)
-                pdf.cell(60, 6, 'Description:', 0, 0, 'L')
-                pdf.cell(130, 6, anomaly.get('description', ''), 0, 1, 'L')
-                
-                pdf.cell(60, 6, 'Severity:', 0, 0, 'L')
-                pdf.cell(130, 6, anomaly.get('severity', 'medium'), 0, 1, 'L')
-                
-                # Add timestamp if available
-                if 'timestamp' in anomaly:
-                    pdf.cell(60, 6, 'Timestamp:', 0, 0, 'L')
-                    pdf.cell(130, 6, anomaly.get('timestamp', ''), 0, 1, 'L')
-        else:
-            pdf.set_font('Arial', 'I', 11)
-            pdf.ln(2)
-            pdf.cell(190, 6, 'No anomalies detected', 0, 1, 'L')
-        
-        # Suspicious Content Section
-        pdf.ln(5)
-        pdf.set_font('Arial', 'B', 14)
-        pdf.set_fill_color(240, 240, 240)
-        pdf.cell(190, 10, 'Suspicious Content', 0, 1, 'L', 1)
-        
-        # Suspicious content details
-        suspicious_content = analysis_results.get('suspicious_content', [])
-        if suspicious_content:
-            pdf.set_font('Arial', '', 11)
-            for i, content in enumerate(suspicious_content):
-                pdf.ln(2)
-                pdf.set_font('Arial', 'B', 11)
-                pdf.cell(190, 6, f"Suspicious Post {i+1}:", 0, 1, 'L')
-                
-                pdf.set_font('Arial', '', 10)
-                pdf.multi_cell(190, 6, f"Content: {content.get('content', '')}")
-                
-                pdf.set_font('Arial', '', 11)
-                pdf.cell(60, 6, 'Sentiment Score:', 0, 0, 'L')
-                pdf.cell(130, 6, f"{content.get('sentiment_score', 0):.2f}", 0, 1, 'L')
-                
-                pdf.cell(60, 6, 'Reason Flagged:', 0, 0, 'L')
-                pdf.cell(130, 6, content.get('reason', ''), 0, 1, 'L')
-        else:
-            pdf.set_font('Arial', 'I', 11)
-            pdf.ln(2)
-            pdf.cell(190, 6, 'No suspicious content detected', 0, 1, 'L')
-        
-        # Network Analysis Section (if available)
-        if network_results:
-            pdf.ln(5)
-            pdf.set_font('Arial', 'B', 14)
-            pdf.set_fill_color(240, 240, 240)
-            pdf.cell(190, 10, 'Network Analysis', 0, 1, 'L', 1)
-            
-            # Add network visualization if available
-            if 'visualization_path' in network_results:
-                pdf.ln(2)
-                pdf.set_font('Arial', '', 11)
-                pdf.cell(190, 6, 'User Connection Network:', 0, 1, 'L')
-                pdf.image(network_results['visualization_path'], x=25, y=None, w=160)
-            
-            # Add influential nodes
-            influential_nodes = network_results.get('influential_nodes', [])
-            if influential_nodes:
-                pdf.ln(5)
-                pdf.set_font('Arial', 'B', 12)
-                pdf.cell(190, 8, 'Influential Accounts', 0, 1, 'L')
-                
-                pdf.set_font('Arial', '', 11)
-                for i, node in enumerate(influential_nodes[:3]):  # Top 3 influential nodes
-                    pdf.ln(2)
-                    pdf.cell(60, 6, f"Account {i+1}:", 0, 0, 'L')
-                    pdf.cell(130, 6, node.get('username', ''), 0, 1, 'L')
-                    
-                    pdf.cell(60, 6, 'Centrality Score:', 0, 0, 'L')
-                    centrality = node.get('pagerank', 0) + node.get('betweenness', 0)
-                    pdf.cell(130, 6, f"{centrality:.4f}", 0, 1, 'L')
-                    
-                    pdf.cell(60, 6, 'Suspicious:', 0, 0, 'L')
-                    pdf.cell(130, 6, 'Yes' if node.get('is_suspicious', False) else 'No', 0, 1, 'L')
-            
-            # Add suspicious connections
-            suspicious_connections = network_results.get('suspicious_connections', [])
-            if suspicious_connections:
-                pdf.ln(5)
-                pdf.set_font('Arial', 'B', 12)
-                pdf.cell(190, 8, 'Suspicious Network Patterns', 0, 1, 'L')
-                
-                pdf.set_font('Arial', '', 11)
-                for i, connection in enumerate(suspicious_connections):
-                    pdf.ln(2)
-                    pdf.cell(60, 6, f"Pattern {i+1}:", 0, 0, 'L')
-                    pdf.cell(130, 6, connection.get('type', ''), 0, 1, 'L')
-                    
-                    pdf.cell(60, 6, 'Description:', 0, 0, 'L')
-                    pdf.cell(130, 6, connection.get('description', ''), 0, 1, 'L')
-        
-        # Conclusion Section
-        pdf.ln(5)
-        pdf.set_font('Arial', 'B', 14)
-        pdf.set_fill_color(240, 240, 240)
-        pdf.cell(190, 10, 'Conclusion', 0, 1, 'L', 1)
-        
-        # Generate a simple conclusion based on analysis
+        # Timeline Section
+        pdf.set_font('Arial', 'B', self.section_font_size)
+        pdf.cell(190, self.line_height, 'Posting Activity', 0, 1, 'L')
         pdf.ln(2)
-        pdf.set_font('Arial', '', 11)
         
-        # Determine risk level
-        risk_level = "Low"
-        risk_factors = []
+        # Add timeline chart
+        timeline_chart = self._create_posting_timeline(user_data.get('posts', []))
+        if timeline_chart:
+            pdf.image(timeline_chart, x=10, w=190)
         
-        if profile.get('is_suspicious', False):
-            risk_level = "High"
-            risk_factors.append("Suspicious account profile")
-        
-        if len(anomalies) > 0:
-            if 'high' in [a.get('severity', '') for a in anomalies]:
-                risk_level = "High"
-            elif risk_level != "High" and len(anomalies) > 2:
-                risk_level = "Medium"
-            risk_factors.append(f"{len(anomalies)} posting anomalies detected")
-            
-        if len(suspicious_content) > 0:
-            if len(suspicious_content) > 2:
-                risk_level = "High"
-            elif risk_level != "High":
-                risk_level = "Medium"
-            risk_factors.append(f"{len(suspicious_content)} suspicious posts detected")
-            
-        if network_results and len(network_results.get('suspicious_connections', [])) > 0:
-            risk_level = "High"
-            risk_factors.append(f"{len(network_results.get('suspicious_connections', []))} suspicious network patterns")
-            
-        # Write conclusion
-        pdf.multi_cell(190, 6, f"Based on the forensic analysis of the social media data for user '{username}' on {platform}, we have determined a {risk_level.upper()} risk level.")
-        
-        if risk_factors:
-            pdf.ln(2)
-            pdf.cell(190, 6, "Risk factors identified:", 0, 1, 'L')
-            for factor in risk_factors:
-                pdf.cell(10, 6, "•", 0, 0, 'R')
-                pdf.cell(180, 6, factor, 0, 1, 'L')
-        else:
-            pdf.ln(2)
-            pdf.multi_cell(190, 6, "No significant risk factors were identified in this analysis.")
-            
-        # Add disclaimer
         pdf.ln(5)
-        pdf.set_font('Arial', 'I', 9)
-        pdf.multi_cell(190, 5, "DISCLAIMER: This report was generated by an automated system and should be reviewed by a human analyst before drawing final conclusions. The accuracy of this analysis depends on the quality and completeness of the input data.")
+        
+        # Content Analysis Section
+        pdf.set_font('Arial', 'B', self.section_font_size)
+        pdf.cell(190, self.line_height, 'Content Analysis', 0, 1, 'L')
+        pdf.ln(2)
+        
+        # Add wordcloud
+        wordcloud = self._create_wordcloud(
+            analysis_results.get('sentiment_analysis', {}),
+            user_data.get('posts', [])
+        )
+        if wordcloud:
+            pdf.image(wordcloud, x=10, w=190)
+        
+        pdf.ln(5)
+        
+        # Network Analysis Section
+        if network_results:
+            pdf.add_page()
+            pdf.set_font('Arial', 'B', self.section_font_size)
+            pdf.cell(190, self.line_height, 'Network Analysis', 0, 1, 'L')
+            pdf.ln(2)
+            
+            # Add network visualization
+            network_graph = self._create_network_graph(network_results)
+            if network_graph:
+                pdf.image(network_graph, x=10, w=190)
+            
+            # Add network metrics
+            pdf.set_font('Arial', '', self.text_font_size)
+            
+            if network_results.get('influential_nodes'):
+                pdf.ln(5)
+                pdf.set_font('Arial', 'B', self.text_font_size)
+                pdf.cell(190, self.line_height, 'Influential Connections:', 0, 1, 'L')
+                pdf.set_font('Arial', '', self.text_font_size)
+                for node in network_results['influential_nodes'][:5]:
+                    pdf.cell(190, self.line_height, f"• {node}", 0, 1, 'L')
+            
+            if network_results.get('suspicious_connections'):
+                pdf.ln(5)
+                pdf.set_font('Arial', 'B', self.text_font_size)
+                pdf.cell(190, self.line_height, 'Suspicious Patterns:', 0, 1, 'L')
+                pdf.set_font('Arial', '', self.text_font_size)
+                for conn in network_results['suspicious_connections'][:5]:
+                    pdf.cell(190, self.line_height, f"• {conn}", 0, 1, 'L')
         
         # Save the PDF
         pdf.output(output_path)

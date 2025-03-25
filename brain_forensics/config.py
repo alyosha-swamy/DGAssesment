@@ -6,6 +6,7 @@ load_dotenv()
 
 # API Keys (using environment variables for security)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 
 # Data storage settings
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -32,4 +33,16 @@ MONGO_COLLECTION = "analysis_results"
 
 # Web search settings
 MAX_SEARCH_RESULTS = 10
-SEARCH_TIMEOUT = 30  # seconds 
+SEARCH_TIMEOUT = 30  # seconds
+
+# LLM Model
+LLM_MODEL = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+
+# Directory paths
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+REPORTS_DIR = os.path.join(BASE_DIR, "reports")
+
+# Ensure directories exist
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(REPORTS_DIR, exist_ok=True) 

@@ -1,5 +1,5 @@
 // API endpoint (change if deployed elsewhere)
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:8080/api';
 
 // DOM elements
 const searchForm = document.getElementById('search-form');
@@ -50,20 +50,30 @@ async function handleFormSubmit(event) {
 
 // Call API to analyze user
 async function analyzeUser(username, platform) {
-    const response = await fetch(`${API_BASE_URL}/analyze`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ username, platform })
-    });
-    
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'An error occurred while analyzing the user');
+    try {
+        const response = await fetch(`${API_BASE_URL}/analyze`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, platform })
+        });
+        
+        if (!response.ok) {
+            if (response.status === 404) {
+                throw new Error('No social media data found for this user');
+            }
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'An error occurred while analyzing the user');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+            throw new Error('Unable to connect to the server. Please make sure the server is running and try again.');
+        }
+        throw error;
     }
-    
-    return await response.json();
 }
 
 // Show/hide loading indicator
@@ -75,7 +85,22 @@ function showLoading(isLoading) {
 
 // Show error message
 function showError(message) {
-    alert(`Error: ${message}`);
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'alert alert-danger alert-dismissible fade show';
+    errorDiv.innerHTML = `
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    // Insert error message at the top of the main content
+    const mainContent = document.querySelector('main');
+    mainContent.insertBefore(errorDiv, mainContent.firstChild);
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        errorDiv.remove();
+    }, 5000);
 }
 
 // Display results

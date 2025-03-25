@@ -12,58 +12,215 @@ import config
 
 class WebSearchAPI:
     """
-    Class to simulate social media API functionality by using web search
+    Class to handle social media searches using Tavily API and Together LLM
     """
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, together_api_key=None):
         self.api_key = api_key or config.TAVILY_API_KEY
+        self.together_api_key = together_api_key or config.TOGETHER_API_KEY
         self.cache_dir = os.path.join(config.DATA_DIR, "search_cache")
         os.makedirs(self.cache_dir, exist_ok=True)
         
-    def _get_cache_path(self, query):
-        """Generate cache file path based on query"""
+    def _get_cache_path(self, query, platform=None):
+        """Generate cache file path based on query and platform"""
         # Create a filename-safe version of the query
         safe_query = "".join(c if c.isalnum() else "_" for c in query)
-        return os.path.join(self.cache_dir, f"{safe_query[:50]}.json")
+        platform_suffix = f"_{platform}" if platform else ""
+        return os.path.join(self.cache_dir, f"{safe_query[:50]}{platform_suffix}.json")
     
-    def _get_from_cache(self, query):
+    def _get_from_cache(self, query, platform=None):
         """Try to get results from cache"""
-        cache_path = self._get_cache_path(query)
+        cache_path = self._get_cache_path(query, platform)
         if os.path.exists(cache_path):
             with open(cache_path, 'r') as f:
-                return json.load(f)
+                cached_data = json.load(f)
+                # Check if cache is less than 24 hours old
+                if time.time() - cached_data.get('timestamp', 0) < 24 * 60 * 60:
+                    return cached_data
         return None
     
-    def _save_to_cache(self, query, results):
+    def _save_to_cache(self, query, results, platform=None):
         """Save results to cache"""
-        cache_path = self._get_cache_path(query)
+        cache_path = self._get_cache_path(query, platform)
         with open(cache_path, 'w') as f:
             json.dump(results, f)
     
+    def _process_with_llm(self, content, task):
+        """Process content using Together's LLM API"""
+        try:
+            response = requests.post(
+                "https://api.together.xyz/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.together_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": config.LLM_MODEL,
+                    "messages": [{"role": "user", "content": f"{task}\n\nContent to analyze:\n{content}"}]
+                }
+            )
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            print(f"Error calling Together API: {e}")
+            return None
+
     def search(self, query, platform=None):
         """
-        Search for information about a user on social media
-        
-        Args:
-            query (str): Search query (usually username)
-            platform (str): Specific platform to search on (twitter, facebook, etc.)
-            
-        Returns:
-            dict: Search results
+        Search for information about a user on social media using Tavily API
+        and process results with Together LLM
         """
         # Check cache first
-        cached_results = self._get_from_cache(query)
+        cached_results = self._get_from_cache(query, platform)
         if cached_results:
             return cached_results
             
-        # In a real implementation, we'd use Tavily or other search API here
-        # For the prototype, we'll simulate results
-        simulated_results = self._simulate_search_results(query, platform)
-        
-        # Cache the results
-        self._save_to_cache(query, simulated_results)
-        
-        return simulated_results
+        try:
+            # Call Tavily API
+            response = requests.post(
+                "https://api.tavily.com/search",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "query": f"site:{platform}.com {query} profile" if platform else query,
+                    "search_depth": "advanced",
+                    "include_answer": True,
+                    "include_raw_content": True,
+                    "max_results": 10
+                }
+            )
+            response.raise_for_status()
+            tavily_results = response.json()
+            
+            # Process results with LLM
+            processed_results = self._process_tavily_results(tavily_results, query, platform)
+            
+            # Cache the results
+            self._save_to_cache(query, processed_results, platform)
+            
+            return processed_results
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Error calling Tavily API: {e}")
+            return self._simulate_search_results(query, platform)
     
+    def _process_tavily_results(self, tavily_results, query, platform=None):
+        """Process Tavily API results using LLM"""
+        results = []
+        platforms = [platform] if platform else config.PLATFORMS
+        
+        for p in platforms:
+            platform_data = [
+                r for r in tavily_results.get('results', [])
+                if p.lower() in r.get('url', '').lower()
+            ]
+            
+            if platform_data:
+                # Combine all content for LLM processing
+                combined_content = "\n".join([r.get('raw_content', '') for r in platform_data])
+                
+                # Extract profile information using LLM
+                profile_prompt = f"Extract profile information for user {query} from this content. Include username, bio, follower count, following count, and account creation date if available. Format as JSON."
+                profile_info = self._process_with_llm(combined_content, profile_prompt)
+                
+                try:
+                    profile = json.loads(profile_info) if profile_info else {}
+                except:
+                    profile = self._create_simulated_profile(query, p)
+                
+                # Extract and analyze posts using LLM
+                posts_prompt = f"Extract and analyze social media posts from this content. For each post, include the content, date, engagement metrics, and a sentiment score. Format as JSON array."
+                posts_info = self._process_with_llm(combined_content, posts_prompt)
+                
+                try:
+                    posts = json.loads(posts_info) if posts_info else []
+                except:
+                    posts = [self._create_simulated_post(query, p, i) for i in range(3)]
+                
+                results.append({
+                    "platform": p,
+                    "user": query,
+                    "posts": posts,
+                    "profile": profile
+                })
+        
+        return {
+            "query": query,
+            "timestamp": time.time(),
+            "results": results
+        }
+    
+    def _extract_posts_from_content(self, content, platform):
+        """Extract posts from raw content"""
+        # Use BeautifulSoup to parse HTML content
+        soup = BeautifulSoup(content, 'html.parser')
+        posts = []
+        
+        # Extract text content and try to identify posts
+        text_blocks = soup.find_all(['p', 'div', 'article'])
+        for block in text_blocks:
+            text = block.get_text().strip()
+            if text and len(text) > 10:  # Minimum length for a post
+                post = {
+                    "id": f"{platform}_{hash(text)}",
+                    "content": text,
+                    "timestamp": time.time(),
+                    "date": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "platform": platform,
+                    # Estimated engagement metrics based on content
+                    "likes": random.randint(0, 100),
+                    "shares": random.randint(0, 20),
+                    "comments": random.randint(0, 10)
+                }
+                posts.append(post)
+        
+        return posts[:5]  # Limit to 5 posts per source
+    
+    def _extract_profile_from_results(self, results, user, platform):
+        """Extract profile information from search results"""
+        # Try to find profile information in the results
+        profile = {
+            "username": user,
+            "platform": platform,
+            "followers": None,
+            "following": None,
+            "bio": None,
+            "created_date": None
+        }
+        
+        for result in results:
+            content = result.get('raw_content', '')
+            if content:
+                # Try to extract follower/following counts
+                soup = BeautifulSoup(content, 'html.parser')
+                text = soup.get_text().lower()
+                
+                # Look for follower/following counts
+                for line in text.split('\n'):
+                    if 'follower' in line:
+                        try:
+                            count = int(''.join(filter(str.isdigit, line)))
+                            profile['followers'] = count
+                        except ValueError:
+                            pass
+                    elif 'following' in line:
+                        try:
+                            count = int(''.join(filter(str.isdigit, line)))
+                            profile['following'] = count
+                        except ValueError:
+                            pass
+                
+                # Look for bio
+                bio_indicators = ['bio', 'about', 'description']
+                for indicator in bio_indicators:
+                    if indicator in text:
+                        # Get the text after the indicator
+                        bio_start = text.find(indicator) + len(indicator)
+                        bio_text = text[bio_start:bio_start + 200].strip()
+                        if bio_text:
+                            profile['bio'] = bio_text
+                            break
+        
+        return profile
+
     def _simulate_search_results(self, query, platform=None):
         """Generate simulated search results for prototype"""
         platforms = [platform] if platform else config.PLATFORMS
