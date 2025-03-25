@@ -7,13 +7,21 @@ import os
 import sys
 import json
 import base64
+import argparse
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 
-from api import WebSearchAPI
-from analysis import SentimentAnalyzer, NetworkAnalyzer
-from reports import ForensicReportGenerator
-import config
+# Add the current directory to Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from brain_forensics.api.web_search import WebSearchAPI
+from brain_forensics.analysis.sentiment import SentimentAnalyzer
+from brain_forensics.analysis.network import NetworkAnalyzer
+from brain_forensics.reports.report_generator import ForensicReportGenerator
+from brain_forensics import config
 
 app = Flask(__name__, static_folder='web')
 CORS(app)  # Enable Cross-Origin Resource Sharing
@@ -151,8 +159,51 @@ def get_report(filename):
 
 def main():
     """Run the Flask application"""
+    parser = argparse.ArgumentParser(description='Start the Social Media Forensics web server')
+    parser.add_argument('--port', type=int, help='Port to run the server on (default: try 8080, 8000, etc.)')
+    args = parser.parse_args()
+
     os.makedirs('web', exist_ok=True)
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    
+    if args.port:
+        try:
+            print(f"\nStarting server on specified port {args.port}...")
+            app.run(debug=True, host='0.0.0.0', port=args.port)
+        except OSError as e:
+            if "Address already in use" in str(e):
+                print(f"Error: Port {args.port} is already in use.")
+                if args.port == 5000:
+                    print("Note: On macOS, port 5000 is often used by AirPlay Receiver.")
+                    print("To fix: Go to System Settings -> General -> AirDrop & Handoff -> Turn off 'AirPlay Receiver'")
+            else:
+                print(f"Error starting server: {e}")
+            sys.exit(1)
+        return
+
+    # Try different ports, starting with higher ports first to avoid system ports
+    ports = [8080, 8000, 3000, 5000]
+    
+    for port in ports:
+        try:
+            print(f"\nAttempting to start server on port {port}...")
+            app.run(debug=True, host='0.0.0.0', port=port)
+            break
+        except OSError as e:
+            if "Address already in use" in str(e):
+                print(f"Port {port} is already in use.")
+                if port == 5000:
+                    print("Note: On macOS, port 5000 is often used by AirPlay Receiver.")
+                    print("To fix: Go to System Settings -> General -> AirDrop & Handoff -> Turn off 'AirPlay Receiver'")
+                continue
+            else:
+                print(f"Error starting server on port {port}: {e}")
+                continue
+    else:
+        print("\nFailed to find an available port. Please try:")
+        print("1. Using a specific port with: python app.py --port <port_number>")
+        print("2. Checking and stopping other running services")
+        print("3. Disabling AirPlay Receiver if you're on macOS")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main() 
