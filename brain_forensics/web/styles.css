@@ -1,0 +1,190 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* Sidebar styles */
+.sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    padding: 0;
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+}
+
+.sidebar .nav-link {
+    font-weight: 500;
+    color: #adb5bd;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.2rem;
+}
+
+.sidebar .nav-link:hover {
+    color: #fff;
+}
+
+.sidebar .nav-link.active {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 0.25rem;
+}
+
+/* Cards and sections */
+.card {
+    border-radius: 0.5rem;
+    border: none;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    margin-bottom: 1.5rem;
+}
+
+.card-header {
+    background-color: rgba(0, 0, 0, 0.03);
+    font-weight: 600;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    border-radius: 0.5rem 0.5rem 0 0 !important;
+}
+
+/* Sentiment gauge */
+.sentiment-meter {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 1rem 0;
+}
+
+.gauge {
+    position: relative;
+    width: 120px;
+    height: 120px;
+}
+
+.gauge-body {
+    position: relative;
+    width: 100%;
+    height: 0;
+    padding-bottom: 50%;
+    background-color: #e9ecef;
+    border-top-left-radius: 100% 200%;
+    border-top-right-radius: 100% 200%;
+    overflow: hidden;
+}
+
+.gauge-fill {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: inherit;
+    height: 100%;
+    background-color: #4caf50;
+    transform-origin: center top;
+    transform: rotate(0.5turn);
+    transition: transform 0.5s ease-out;
+}
+
+.gauge-text {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 85%;
+    text-align: center;
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+/* Keywords cloud */
+.keywords-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+}
+
+.keyword-badge {
+    padding: 0.4rem 0.8rem;
+    border-radius: 1rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    background-color: #f1f8ff;
+    color: #0366d6;
+    border: 1px solid #c8e1ff;
+}
+
+/* Network graph */
+.network-graph {
+    text-align: center;
+    min-height: 300px;
+    background-color: #f8f9fa;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Anomaly cards */
+.anomaly-card {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    margin-bottom: 1rem;
+}
+
+.severity-high {
+    border-left: 5px solid #dc3545;
+}
+
+.severity-medium {
+    border-left: 5px solid #fd7e14;
+}
+
+.severity-low {
+    border-left: 5px solid #17a2b8;
+}
+
+/* Node list */
+.node-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    background-color: #f8f9fa;
+}
+
+.node-score {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background-color: #28a745;
+    color: white;
+    font-weight: bold;
+    font-size: 0.9rem;
+    margin-right: 1rem;
+}
+
+.node-info {
+    flex-grow: 1;
+}
+
+.node-username {
+    font-weight: 600;
+}
+
+.node-details {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .sidebar {
+        position: static;
+        height: auto;
+    }
+} 

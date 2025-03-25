@@ -33,6 +33,8 @@ pip install -r brain_forensics/requirements.txt
 
 ## Usage
 
+### Command Line Interface
+
 Run a forensic analysis on a username:
 
 ```bash
@@ -46,6 +48,23 @@ Or launch the interactive dashboard:
 cd brain_forensics
 python -m visualization.dashboard
 ```
+
+### Web Interface
+
+The tool also comes with a modern web interface that provides a more visual experience:
+
+```bash
+cd brain_forensics
+./run_webapp.sh
+```
+
+Then open your browser to `http://localhost:5000` to access the web application.
+
+The web interface provides:
+- User-friendly social media profile analysis
+- Interactive visualization of sentiment and network data
+- Comprehensive anomaly detection and reporting
+- One-click access to detailed forensic reports
 
 ## License
 
