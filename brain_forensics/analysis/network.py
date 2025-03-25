@@ -261,7 +261,15 @@ class NetworkAnalyzer:
         node_sizes = []
         node_colors = []
         for node in self.graph.nodes():
+            # Get followers count, default to 100 if None or invalid
             followers = self.graph.nodes[node].get('followers', 100)
+            try:
+                followers = float(followers)
+                if followers != followers:  # Check for NaN
+                    followers = 100
+            except (TypeError, ValueError):
+                followers = 100
+            
             is_suspicious = self.graph.nodes[node].get('is_suspicious', False)
             
             # Size based on log of followers (minimum 100, maximum 2000)
@@ -269,16 +277,26 @@ class NetworkAnalyzer:
             node_sizes.append(size)
             
             # Color based on suspiciousness
-            if is_suspicious:
-                node_colors.append('red')
-            else:
-                node_colors.append('green')
+            node_colors.append('red' if is_suspicious else 'green')
         
         # Calculate edge weights
-        edge_widths = [self.graph[u][v].get('weight', 0.5) * 3 for u, v in self.graph.edges()]
+        edge_widths = []
+        for u, v in self.graph.edges():
+            weight = self.graph[u][v].get('weight', 0.5)
+            try:
+                weight = float(weight)
+                if weight != weight:  # Check for NaN
+                    weight = 0.5
+            except (TypeError, ValueError):
+                weight = 0.5
+            edge_widths.append(weight * 3)
         
         # Spring layout for graph
-        pos = nx.spring_layout(self.graph, k=0.3, iterations=50)
+        try:
+            pos = nx.spring_layout(self.graph, k=0.3, iterations=50)
+        except:
+            # Fallback to simpler layout if spring layout fails
+            pos = nx.circular_layout(self.graph)
         
         # Draw nodes
         nx.draw_networkx_nodes(

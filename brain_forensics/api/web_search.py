@@ -64,6 +64,57 @@ class WebSearchAPI:
             print(f"Error calling Together API: {e}")
             return None
 
+    def _clean_json_response(self, response):
+        """Clean and parse JSON response from LLM"""
+        if not response:
+            return {}
+        
+        try:
+            # Remove markdown code blocks if present
+            json_str = response.strip()
+            if json_str.startswith('```'):
+                # Find the first and last ``` and extract content between them
+                start = json_str.find('\n', 3) + 1  # Skip first line with ```json
+                end = json_str.rfind('```')
+                if end > start:
+                    json_str = json_str[start:end]
+            
+            # Clean any remaining whitespace
+            json_str = json_str.strip()
+            
+            # Parse JSON
+            data = json.loads(json_str)
+            
+            # Clean up the data - replace None/null with appropriate defaults
+            if 'posts' in data:
+                for post in data['posts']:
+                    post['likes'] = post.get('likes', 0) or 0
+                    post['shares'] = post.get('shares', 0) or 0
+                    post['comments'] = post.get('comments', 0) or 0
+                    post['date'] = post.get('date') or 'Unknown date'
+            
+            if 'profile' in data:
+                profile = data['profile']
+                profile['followers'] = profile.get('followers', 0) or 0
+                profile['following'] = profile.get('following', 0) or 0
+                profile['join_date'] = profile.get('join_date') or 'Unknown'
+                profile['bio'] = profile.get('bio') or ''
+            
+            if 'sentiment' in data:
+                sentiment = data['sentiment']
+                sentiment['average'] = sentiment.get('average', 0) or 0
+                if 'distribution' in sentiment:
+                    dist = sentiment['distribution']
+                    dist['positive'] = dist.get('positive', 0) or 0
+                    dist['neutral'] = dist.get('neutral', 0) or 0
+                    dist['negative'] = dist.get('negative', 0) or 0
+            
+            return data
+        except Exception as e:
+            print(f"Error cleaning JSON response: {e}")
+            print(f"Raw response: {response}")
+            return {}
+
     def search(self, query, platform=None):
         """
         Search for information about a user on social media using Tavily API
@@ -98,20 +149,20 @@ class WebSearchAPI:
                 for result in tavily_results.get('results', [])
             ])
 
-            # Use LLM to extract and analyze information with a more structured prompt
-            llm_prompt = f"""You are a JSON generator analyzing social media data. Your task is to analyze the following search results and return ONLY a valid JSON object with no additional text.
+            # Use LLM to extract and analyze information
+            llm_prompt = f"""You are a JSON generator analyzing social media data. Your task is to analyze the following search results and return ONLY a valid JSON object with no additional text or markdown formatting.
 
 Search Results for user {query}:
 {combined_content}
 
-Return a JSON object with exactly this structure (fill in appropriate values, use null for missing data):
+Return a JSON object with exactly this structure (use 0 for missing numbers, empty string for missing text):
 {{
     "profile": {{
         "username": string,
-        "bio": string or null,
-        "followers": number or null,
-        "following": number or null,
-        "join_date": string or null
+        "bio": string,
+        "followers": number,
+        "following": number,
+        "join_date": string
     }},
     "posts": [
         {{
@@ -134,25 +185,9 @@ Return a JSON object with exactly this structure (fill in appropriate values, us
     "flags": [string]
 }}"""
 
+            # Get and clean LLM response
             analysis = self._process_with_llm(combined_content, llm_prompt)
-            
-            if analysis:
-                try:
-                    # Clean the response to ensure it's valid JSON
-                    json_str = analysis.strip()
-                    if json_str.startswith('```json'):
-                        json_str = json_str[7:]
-                    if json_str.endswith('```'):
-                        json_str = json_str[:-3]
-                    json_str = json_str.strip()
-                    
-                    processed_data = json.loads(json_str)
-                except json.JSONDecodeError as e:
-                    print(f"Failed to parse LLM response as JSON: {e}")
-                    print(f"Raw response: {analysis}")
-                    processed_data = {}
-            else:
-                processed_data = {}
+            processed_data = self._clean_json_response(analysis)
 
             # Format final response
             results = []
