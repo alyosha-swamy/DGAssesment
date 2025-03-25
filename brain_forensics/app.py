@@ -54,94 +54,52 @@ def analyze():
     platform = data.get('platform')
     
     try:
-        # Step 1: Collect social media data
+        # Step 1: Collect and analyze social media data
         search_results = search_api.search(username, platform=platform)
         result_data = search_results.get('results', [])
         
         if not result_data:
             return jsonify({'error': f'No social media data found for user: {username}'}), 404
         
-        # Step 2: Analyze sentiment and detect anomalies
-        analysis_results = []
+        # Use the first platform's data for the response
+        main_data = result_data[0]
         
-        for platform_data in result_data:
-            # Analyze sentiment for each platform
-            platform_analysis = sentiment_analyzer.analyze_user_posts(platform_data)
-            
-            # Detect anomalies
-            anomalies = sentiment_analyzer.detect_anomalies(platform_data)
-            platform_analysis['anomalies'] = anomalies
-            
-            analysis_results.append(platform_analysis)
+        # Generate network visualization
+        network_vis_path = network_analyzer.visualize_network(result_data)
         
-        # Step 3: Perform network analysis
-        # For prototype, we'll simulate additional users
-        simulated_users = []
-        
-        # Generate 3 random users for each platform to create a network
-        for platform_data in result_data:
-            platform = platform_data.get('platform', '')
-            for i in range(3):
-                simulated_username = f"user{i}_{platform}"
-                simulated_result = search_api.search(simulated_username, platform=platform)
-                if 'results' in simulated_result and simulated_result['results']:
-                    simulated_users.extend(simulated_result['results'])
-        
-        # Combine real and simulated users for network analysis
-        all_users = result_data + simulated_users
-        
-        # Visualize network
-        network_vis_path = network_analyzer.visualize_network(all_users)
-        
-        # Detect communities
-        communities = network_analyzer.detect_communities()
-        
-        # Detect influential nodes
-        influential_nodes = network_analyzer.detect_influential_nodes()
-        
-        # Detect suspicious connections
-        suspicious_connections = network_analyzer.detect_suspicious_connections()
-        
-        # Read image file for network visualization to include in response
+        # Read network visualization image
         network_image = None
         if network_vis_path and os.path.exists(network_vis_path):
             with open(network_vis_path, 'rb') as f:
                 image_data = f.read()
                 network_image = base64.b64encode(image_data).decode('utf-8')
         
-        # Step 4: Generate comprehensive report
-        # Use the first platform's data for the main report
-        main_platform_data = result_data[0]
-        main_analysis = analysis_results[0]
-        
-        network_results = {
-            'visualization_path': network_vis_path,
-            'communities': communities,
-            'influential_nodes': influential_nodes,
-            'suspicious_connections': suspicious_connections
-        }
-        
+        # Generate report
         report_path = report_generator.generate_report(
-            main_platform_data,
-            main_analysis,
-            network_results
+            main_data,
+            main_data.get('sentiment', {}),
+            {
+                'visualization_path': network_vis_path,
+                'patterns': main_data.get('patterns', []),
+                'flags': main_data.get('flags', [])
+            }
         )
         
         # Format response data
         response = {
             'username': username,
-            'platform': main_platform_data.get('platform', ''),
-            'profile': main_platform_data.get('profile', {}),
-            'sentiment_analysis': {
-                'average_sentiment': main_analysis.get('average_sentiment', 0),
-                'sentiment_distribution': main_analysis.get('sentiment_distribution', {}),
-                'top_keywords': main_analysis.get('top_keywords', [])
-            },
-            'anomalies': main_analysis.get('anomalies', []),
+            'platform': main_data.get('platform', ''),
+            'profile': main_data.get('profile', {}),
+            'sentiment_analysis': main_data.get('sentiment', {
+                'average_sentiment': 0,
+                'sentiment_distribution': {},
+                'top_keywords': []
+            }),
+            'anomalies': main_data.get('flags', []),
             'network_analysis': {
                 'image': network_image,
-                'influential_nodes': influential_nodes[:5] if influential_nodes else [],
-                'suspicious_connections': suspicious_connections[:5] if suspicious_connections else []
+                'patterns': main_data.get('patterns', []),
+                'flags': main_data.get('flags', [])
             },
             'report_path': report_path
         }
@@ -149,6 +107,7 @@ def analyze():
         return jsonify(response)
     
     except Exception as e:
+        print(f"Error in analyze endpoint: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/reports/<path:filename>')

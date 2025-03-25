@@ -69,18 +69,20 @@ class WebSearchAPI:
         Search for information about a user on social media using Tavily API
         and process results with Together LLM
         """
-        # Check cache first
-        cached_results = self._get_from_cache(query, platform)
-        if cached_results:
-            return cached_results
-            
         try:
+            # Construct search query
+            if platform:
+                search_query = f"site:{platform}.com {query} profile social media"
+            else:
+                platforms = " OR ".join([f"site:{p}.com" for p in config.PLATFORMS])
+                search_query = f"({platforms}) {query} profile social media"
+
             # Call Tavily API
             response = requests.post(
                 "https://api.tavily.com/search",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json={
-                    "query": f"site:{platform}.com {query} profile" if platform else query,
+                    "query": search_query,
                     "search_depth": "advanced",
                     "include_answer": True,
                     "include_raw_content": True,
@@ -89,63 +91,137 @@ class WebSearchAPI:
             )
             response.raise_for_status()
             tavily_results = response.json()
-            
+
             # Process results with LLM
-            processed_results = self._process_tavily_results(tavily_results, query, platform)
+            combined_content = "\n".join([
+                f"URL: {result.get('url', '')}\nTitle: {result.get('title', '')}\nContent: {result.get('content', '')}"
+                for result in tavily_results.get('results', [])
+            ])
+
+            # Use LLM to extract and analyze information with a more structured prompt
+            llm_prompt = f"""You are a JSON generator analyzing social media data. Your task is to analyze the following search results and return ONLY a valid JSON object with no additional text.
+
+Search Results for user {query}:
+{combined_content}
+
+Return a JSON object with exactly this structure (fill in appropriate values, use null for missing data):
+{{
+    "profile": {{
+        "username": string,
+        "bio": string or null,
+        "followers": number or null,
+        "following": number or null,
+        "join_date": string or null
+    }},
+    "posts": [
+        {{
+            "content": string,
+            "date": string,
+            "likes": number,
+            "shares": number,
+            "comments": number
+        }}
+    ],
+    "sentiment": {{
+        "average": number between -1 and 1,
+        "distribution": {{
+            "positive": number,
+            "neutral": number,
+            "negative": number
+        }}
+    }},
+    "patterns": [string],
+    "flags": [string]
+}}"""
+
+            analysis = self._process_with_llm(combined_content, llm_prompt)
             
-            # Cache the results
-            self._save_to_cache(query, processed_results, platform)
-            
-            return processed_results
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Error calling Tavily API: {e}")
-            return self._simulate_search_results(query, platform)
-    
-    def _process_tavily_results(self, tavily_results, query, platform=None):
-        """Process Tavily API results using LLM"""
-        results = []
-        platforms = [platform] if platform else config.PLATFORMS
-        
-        for p in platforms:
-            platform_data = [
-                r for r in tavily_results.get('results', [])
-                if p.lower() in r.get('url', '').lower()
-            ]
-            
-            if platform_data:
-                # Combine all content for LLM processing
-                combined_content = "\n".join([r.get('raw_content', '') for r in platform_data])
-                
-                # Extract profile information using LLM
-                profile_prompt = f"Extract profile information for user {query} from this content. Include username, bio, follower count, following count, and account creation date if available. Format as JSON."
-                profile_info = self._process_with_llm(combined_content, profile_prompt)
-                
+            if analysis:
                 try:
-                    profile = json.loads(profile_info) if profile_info else {}
-                except:
-                    profile = self._create_simulated_profile(query, p)
-                
-                # Extract and analyze posts using LLM
-                posts_prompt = f"Extract and analyze social media posts from this content. For each post, include the content, date, engagement metrics, and a sentiment score. Format as JSON array."
-                posts_info = self._process_with_llm(combined_content, posts_prompt)
-                
-                try:
-                    posts = json.loads(posts_info) if posts_info else []
-                except:
-                    posts = [self._create_simulated_post(query, p, i) for i in range(3)]
-                
-                results.append({
-                    "platform": p,
+                    # Clean the response to ensure it's valid JSON
+                    json_str = analysis.strip()
+                    if json_str.startswith('```json'):
+                        json_str = json_str[7:]
+                    if json_str.endswith('```'):
+                        json_str = json_str[:-3]
+                    json_str = json_str.strip()
+                    
+                    processed_data = json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    print(f"Failed to parse LLM response as JSON: {e}")
+                    print(f"Raw response: {analysis}")
+                    processed_data = {}
+            else:
+                processed_data = {}
+
+            # Format final response
+            results = []
+            if processed_data:
+                platform_data = {
+                    "platform": platform or "all",
                     "user": query,
-                    "posts": posts,
-                    "profile": profile
-                })
-        
+                    "profile": processed_data.get("profile", {}),
+                    "posts": processed_data.get("posts", []),
+                    "sentiment": processed_data.get("sentiment", {}),
+                    "patterns": processed_data.get("patterns", []),
+                    "flags": processed_data.get("flags", [])
+                }
+                results.append(platform_data)
+
+            return {
+                "query": query,
+                "timestamp": time.time(),
+                "results": results or [self._create_simulated_results(query, platform)]
+            }
+            
+        except Exception as e:
+            print(f"Error in search: {e}")
+            # Fallback to simulated results
+            return {
+                "query": query,
+                "timestamp": time.time(),
+                "results": [self._create_simulated_results(query, platform)]
+            }
+
+    def _create_simulated_results(self, query, platform=None):
+        """Create simulated results for testing"""
+        platform = platform or "twitter"
         return {
-            "query": query,
-            "timestamp": time.time(),
-            "results": results
+            "platform": platform,
+            "user": query,
+            "profile": {
+                "username": query,
+                "bio": f"Simulated profile for {query}",
+                "followers": random.randint(100, 10000),
+                "following": random.randint(50, 1000),
+                "join_date": "2020-01-01"
+            },
+            "posts": [
+                {
+                    "id": f"post_{i}",
+                    "content": f"Simulated post {i} by {query}",
+                    "timestamp": time.time() - (i * 86400),  # i days ago
+                    "date": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - (i * 86400))),
+                    "likes": random.randint(0, 100),
+                    "shares": random.randint(0, 20),
+                    "comments": random.randint(0, 10)
+                }
+                for i in range(3)
+            ],
+            "sentiment": {
+                "average": random.uniform(-1, 1),
+                "distribution": {
+                    "positive": random.randint(0, 10),
+                    "neutral": random.randint(0, 10),
+                    "negative": random.randint(0, 10)
+                }
+            },
+            "patterns": [
+                "Regular posting schedule",
+                "Engages with followers",
+                "Shares original content"
+            ],
+            "flags": []
         }
     
     def _extract_posts_from_content(self, content, platform):

@@ -3,9 +3,12 @@ import os
 import sys
 import json
 import random
+import matplotlib
+matplotlib.use('Agg')  # Use Agg backend which doesn't require a GUI
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import time
+from datetime import datetime
 
 # Add parent directory to path to import config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -309,7 +312,7 @@ class NetworkAnalyzer:
         
         # Save figure if filename provided
         if not filename:
-            timestamp = int(time.time())
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"network_visualization_{timestamp}.png"
             
         output_path = os.path.join(self.output_dir, filename)
