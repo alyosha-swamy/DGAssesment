@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Social Media Forensics</title>
+    <title>Social Media Analysis Visualization</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="styles.css">
@@ -16,20 +16,14 @@
             <div class="col-md-3 col-lg-2 d-md-block bg-dark sidebar collapse">
                 <div class="position-sticky pt-3">
                     <div class="text-center mb-4 mt-3">
-                        <h5 class="text-white">Social Media Forensics</h5>
-                        <p class="text-muted">Digital Footprint Analyzer</p>
+                        <h5 class="text-white">Social Media Analysis</h5>
+                        <p class="text-muted">Visualization Tool</p>
                     </div>
                     <ul class="nav flex-column">
                         <li class="nav-item">
                             <a class="nav-link active" href="#">
-                                <i class="bi bi-search me-2"></i>
-                                Analyze User
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#reports-section">
-                                <i class="bi bi-file-earmark-text me-2"></i>
-                                Reports
+                                <i class="bi bi-graph-up me-2"></i>
+                                Dashboard
                             </a>
                         </li>
                         <li class="nav-item">
@@ -45,239 +39,154 @@
             <!-- Main content -->
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-                    <h1 class="h2">Social Media Forensics</h1>
+                    <h1 class="h2">Social Media Analysis Visualization</h1>
                 </div>
 
-                <!-- Search form -->
+                <!-- Data Selection -->
                 <div class="card mb-4">
                     <div class="card-header">
-                        <i class="bi bi-search me-1"></i>
-                        Analyze Social Media User
+                        <i class="bi bi-database me-1"></i>
+                        Data Selection
                     </div>
                     <div class="card-body">
-                        <div class="alert alert-info">
-                            Enter a username to analyze their digital footprint across social media platforms.
-                        </div>
-                        <form id="search-form">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label for="username" class="form-label">Username</label>
-                                    <input type="text" class="form-control" id="username" required>
-                                </div>
-                                <div class="col-md-4">
-                                    <label for="platform" class="form-label">Platform (Optional)</label>
-                                    <select class="form-select" id="platform">
-                                        <option value="">All Platforms</option>
-                                        <option value="twitter">Twitter</option>
-                                        <option value="facebook">Facebook</option>
-                                        <option value="instagram">Instagram</option>
-                                        <option value="linkedin">LinkedIn</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-2 d-flex align-items-end">
-                                    <button type="submit" class="btn btn-primary w-100" id="analyze-btn">
-                                        <i class="bi bi-search me-1"></i> Analyze
-                                    </button>
-                                </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="dataset-select" class="form-label">Select Dataset</label>
+                                <select class="form-select" id="dataset-select">
+                                    <option value="user1">User Profile 1</option>
+                                    <option value="user2">User Profile 2</option>
+                                    <option value="hashtag1">Hashtag Analysis #trending</option>
+                                    <option value="topic1">Topic Analysis: Technology</option>
+                                </select>
                             </div>
-                        </form>
+                            <div class="col-md-3">
+                                <label for="visualization-type" class="form-label">Visualization Type</label>
+                                <select class="form-select" id="visualization-type">
+                                    <option value="network">Network Graph</option>
+                                    <option value="sentiment">Sentiment Analysis</option>
+                                    <option value="timeline">Timeline Analysis</option>
+                                    <option value="all" selected>All Visualizations</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button type="button" class="btn btn-primary w-100" id="visualize-btn">
+                                    <i class="bi bi-graph-up me-1"></i> Visualize
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Loading indicator -->
-                <div id="loading" class="text-center my-5 d-none">
+                <div id="loading" class="text-center my-3 d-none">
                     <div class="spinner-border text-primary" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
-                    <p class="mt-2">Analyzing social media data...</p>
+                    <p class="mt-2 mb-0" id="loading-message">Generating visualizations...</p>
                 </div>
 
-                <!-- Results container (initially hidden) -->
-                <div id="results-container" class="d-none">
-                    <!-- User Profile Section -->
-                    <div class="card mb-4">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <div>
-                                <i class="bi bi-person-circle me-1"></i>
-                                User Profile
-                            </div>
-                            <span id="profile-badge" class="badge bg-success">Verified</span>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <table class="table table-borderless">
-                                        <tr>
-                                            <th style="width: 40%">Username:</th>
-                                            <td id="profile-username"></td>
-                                        </tr>
-                                        <tr>
-                                            <th>Platform:</th>
-                                            <td id="profile-platform"></td>
-                                        </tr>
-                                        <tr>
-                                            <th>Account Created:</th>
-                                            <td id="profile-created"></td>
-                                        </tr>
-                                    </table>
-                                </div>
-                                <div class="col-md-6">
-                                    <table class="table table-borderless">
-                                        <tr>
-                                            <th style="width: 40%">Followers:</th>
-                                            <td id="profile-followers"></td>
-                                        </tr>
-                                        <tr>
-                                            <th>Following:</th>
-                                            <td id="profile-following"></td>
-                                        </tr>
-                                        <tr>
-                                            <th>Bio:</th>
-                                            <td id="profile-bio"></td>
-                                        </tr>
-                                    </table>
-                                </div>
-                            </div>
-                            <div id="profile-alert" class="alert alert-danger d-none mt-3">
-                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                                <span id="profile-alert-message">Potentially suspicious account detected</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Sentiment Analysis Section -->
-                    <div class="card mb-4">
-                        <div class="card-header">
-                            <i class="bi bi-emoji-smile me-1"></i>
-                            Sentiment Analysis
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-4">
-                                    <div class="card">
-                                        <div class="card-body text-center">
-                                            <h5 class="card-title">Average Sentiment</h5>
-                                            <div class="sentiment-meter">
-                                                <div id="sentiment-gauge" class="gauge">
-                                                    <div class="gauge-body">
-                                                        <div id="gauge-fill" class="gauge-fill"></div>
-                                                    </div>
-                                                    <div id="gauge-text" class="gauge-text">0.0</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card">
-                                        <div class="card-body">
-                                            <h5 class="card-title">Sentiment Distribution</h5>
-                                            <div id="sentiment-chart" style="height: 200px;"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card">
-                                        <div class="card-body">
-                                            <h5 class="card-title">Top Keywords</h5>
-                                            <div id="keywords-container" class="keywords-cloud"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Anomalies Section -->
-                    <div class="card mb-4">
-                        <div class="card-header">
-                            <i class="bi bi-exclamation-circle me-1"></i>
-                            Detected Anomalies
-                        </div>
-                        <div class="card-body">
-                            <div id="anomalies-container" class="row"></div>
-                            <div id="no-anomalies" class="alert alert-success d-none">
-                                <i class="bi bi-check-circle me-2"></i>
-                                No anomalies detected in user behavior
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Network Analysis Section -->
-                    <div class="card mb-4">
-                        <div class="card-header">
-                            <i class="bi bi-diagram-3 me-1"></i>
-                            Network Analysis
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-7">
-                                    <h5>Connection Graph</h5>
-                                    <div id="network-graph" class="network-graph">
-                                        <img id="network-image" class="img-fluid" alt="Network graph" src="">
-                                    </div>
-                                </div>
-                                <div class="col-md-5">
-                                    <div class="mb-4">
-                                        <h5>Influential Connections</h5>
-                                        <div id="influential-nodes" class="list-group"></div>
-                                    </div>
-                                    <div>
-                                        <h5>Suspicious Patterns</h5>
-                                        <div id="suspicious-connections" class="list-group"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Report Section -->
-                    <div class="card mb-4">
-                        <div class="card-header">
-                            <i class="bi bi-file-earmark-pdf me-1"></i>
-                            Forensic Report
-                        </div>
-                        <div class="card-body text-center">
-                            <p class="mb-4">A comprehensive forensic report has been generated with all analysis findings.</p>
-                            <a id="report-link" href="#" class="btn btn-primary" target="_blank">
-                                <i class="bi bi-download me-1"></i> Download Full Report
-                            </a>
-                        </div>
-                    </div>
+                <!-- Results container -->
+                <div id="results-container">
+                    <!-- Will be dynamically filled with visualization sections -->
                 </div>
 
-                <!-- About Section -->
-                <div id="about-section" class="card mb-4">
+                <!-- About section -->
+                <div id="about-section" class="card mt-4">
                     <div class="card-header">
                         <i class="bi bi-info-circle me-1"></i>
                         About This Tool
                     </div>
                     <div class="card-body">
-                        <h5>Social Media Forensics Tool</h5>
-                        <p>This tool extracts, analyzes, and visualizes a person's digital footprint from social media platforms. It helps gather forensic evidence related to cybercrimes, misinformation, or user behavior tracking.</p>
-                        
-                        <h5 class="mt-4">Capabilities:</h5>
+                        <p>This tool visualizes preloaded social media data using network graphs and other analysis techniques. Select a dataset and visualization type above to begin.</p>
+                        <h5>Available Visualizations:</h5>
                         <ul>
-                            <li><strong>Data Collection:</strong> Extract posts, comments, likes, and interactions from public accounts</li>
-                            <li><strong>Sentiment Analysis:</strong> Detect patterns in emotional content and potential misinformation</li>
-                            <li><strong>Anomaly Detection:</strong> Identify unusual posting patterns or suspicious behavior</li>
-                            <li><strong>Network Mapping:</strong> Visualize connections between users to detect coordinated activity</li>
-                            <li><strong>Forensic Reporting:</strong> Generate comprehensive reports for investigation purposes</li>
+                            <li><strong>Network Graph</strong>: Shows connections between accounts, hashtags, and content</li>
+                            <li><strong>Sentiment Analysis</strong>: Displays emotional tone of content over time</li>
+                            <li><strong>Timeline Analysis</strong>: Charts posting patterns and engagement metrics</li>
                         </ul>
-                        
-                        <div class="alert alert-warning mt-4">
-                            <i class="bi bi-shield-exclamation me-2"></i>
-                            <strong>Note:</strong> This tool should be used responsibly and in accordance with applicable laws regarding privacy and data protection.
-                        </div>
                     </div>
                 </div>
             </main>
         </div>
     </div>
 
-    <!-- JavaScript Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="script.js"></script>
+    <!-- Templates for visualization sections -->
+    <template id="network-template">
+        <div class="visualization-section mb-4">
+            <h3>Network Analysis</h3>
+            <div class="card">
+                <div class="card-body">
+                    <div id="network-graph"></div>
+                    <div class="network-controls mt-2 text-center">
+                        <button id="zoom-in" class="btn btn-sm btn-outline-secondary"><i class="bi bi-zoom-in"></i></button>
+                        <button id="zoom-out" class="btn btn-sm btn-outline-secondary"><i class="bi bi-zoom-out"></i></button>
+                        <button id="reset-view" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i></button>
+                        <select id="network-filter" class="form-select form-select-sm d-inline-block w-auto ms-2">
+                            <option value="">All Connections</option>
+                        </select>
+                    </div>
+                    <h5 class="mt-3">Key Nodes</h5>
+                    <div id="influential-nodes" class="list-group"></div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="sentiment-template">
+        <div class="visualization-section mb-4">
+            <h3>Sentiment Analysis</h3>
+            <div class="card">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <h5>Overall Sentiment</h5>
+                            <div id="sentiment-gauge-container">
+                                <div class="gauge">
+                                    <div class="gauge-body">
+                                        <div class="gauge-fill" id="gauge-fill"></div>
+                                        <div class="gauge-cover"><span id="gauge-text">0.00</span></div>
+                                    </div>
+                                    <div class="gauge-label" id="sentiment-label">(Neutral)</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <h5>Distribution</h5>
+                            <canvas id="sentiment-chart" height="150"></canvas>
+                        </div>
+                        <div class="col-md-4">
+                            <h5>Trend</h5>
+                            <canvas id="sentiment-trend" height="60"></canvas>
+                            <h5>Top Keywords</h5>
+                            <div id="keywords-container"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="timeline-template">
+        <div class="visualization-section mb-4">
+            <h3>Timeline Analysis</h3>
+            <div class="card">
+                <div class="card-body">
+                    <canvas id="timeline-chart" height="200"></canvas>
+                    <div class="d-flex justify-content-end mt-2">
+                        <select id="timeline-metric" class="form-select form-select-sm w-auto">
+                            <option value="posts">Post Volume</option>
+                            <option value="engagement">Engagement</option>
+                            <option value="reach">Reach</option>
+                        </select>
+                    </div>
+                    <h5 class="mt-3">Key Events</h5>
+                    <div id="key-events" class="list-group"></div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script src="preloaded-data.js"></script>
+    <script src="simplified-app.js"></script>
 </body>
 </html> 

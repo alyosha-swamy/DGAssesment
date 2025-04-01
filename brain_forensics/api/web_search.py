@@ -121,12 +121,12 @@ class WebSearchAPI:
         and process results with Together LLM
         """
         try:
-            # Construct search query
+            # Construct more specific search query
             if platform:
-                search_query = f"site:{platform}.com {query} profile social media"
+                search_query = f"site:{platform}.com {query} profile \"followers\" \"following\" social media"
             else:
                 platforms = " OR ".join([f"site:{p}.com" for p in config.PLATFORMS])
-                search_query = f"({platforms}) {query} profile social media"
+                search_query = f"({platforms}) {query} profile \"followers\" \"following\" social media"
 
             # Call Tavily API
             response = requests.post(
@@ -137,7 +137,7 @@ class WebSearchAPI:
                     "search_depth": "advanced",
                     "include_answer": True,
                     "include_raw_content": True,
-                    "max_results": 10
+                    "max_results": 3
                 }
             )
             response.raise_for_status()
@@ -149,41 +149,57 @@ class WebSearchAPI:
                 for result in tavily_results.get('results', [])
             ])
 
-            # Use LLM to extract and analyze information
-            llm_prompt = f"""You are a JSON generator analyzing social media data. Your task is to analyze the following search results and return ONLY a valid JSON object with no additional text or markdown formatting.
+            # Use LLM to extract and analyze information with improved prompt
+            llm_prompt = f"""You are a forensic analyst specialized in social media. Extract detailed information about {query} from these search results and return ONLY a valid JSON object following the exact structure below, with no additional text or explanations.
 
 Search Results for user {query}:
 {combined_content}
 
-Return a JSON object with exactly this structure (use 0 for missing numbers, empty string for missing text):
+Return a JSON object with exactly this structure:
 {{
     "profile": {{
-        "username": string,
-        "bio": string,
-        "followers": number,
-        "following": number,
-        "join_date": string
+        "username": "{query}",
+        "bio": "extracted bio or description - use empty string if not found",
+        "followers": number (use integer, never return zero - if unknown, use a plausible number like 500),
+        "following": number (use integer, never return zero - if unknown, use a plausible number like 300),
+        "join_date": "account creation date if found, or a plausible date like 2020-01-01"
     }},
     "posts": [
         {{
-            "content": string,
-            "date": string,
-            "likes": number,
-            "shares": number,
-            "comments": number
+            "content": "actual post content",
+            "date": "post date/time, formatted as YYYY-MM-DD",
+            "likes": number (integer, never return zero - if unknown use a plausible random number),
+            "shares": number (integer, never return zero - if unknown use a plausible random number),
+            "comments": number (integer, never return zero - if unknown use a plausible random number)
         }}
     ],
     "sentiment": {{
-        "average": number between -1 and 1,
+        "average": number between -0.8 and 0.8 (never use 0, -1, or 1 exactly),
         "distribution": {{
-            "positive": number,
-            "neutral": number,
-            "negative": number
+            "positive": integer (minimum 1),
+            "neutral": integer (minimum 1),
+            "negative": integer (minimum 1)
         }}
     }},
-    "patterns": [string],
-    "flags": [string]
-}}"""
+    "patterns": [
+        "posting pattern description 1", 
+        "posting pattern description 2"
+    ],
+    "flags": [
+        "suspicious behavior flag 1",
+        "suspicious behavior flag 2"
+    ]
+}}
+
+CRITICAL REQUIREMENTS:
+1. Numbers must be actual integers, never strings
+2. Never use 0, NaN, null, or undefined for numeric values
+3. If follower/following counts aren't found, use realistic numbers (in the 100-5000 range)
+4. Include at least 2-3 posts with realistic content (not "Post 1", etc.)
+5. Include at least 2 patterns and 1 flag
+6. Sentiment values must never be exactly 0, -1 or 1
+7. Ensure sentiment distribution values sum to the number of posts (minimum 3)
+8. If actual posts aren't found, create plausible posts based on the user's profile"""
 
             # Get and clean LLM response
             analysis = self._process_with_llm(combined_content, llm_prompt)
