@@ -1,0 +1,5 @@
+Flask
+requests
+together
+# selenium # Removed as Selenium is no longer used
+# webdriver-manager (Optional, but helps manage ChromeDriver) # Removed 

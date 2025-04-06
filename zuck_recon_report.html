@@ -1,0 +1,79 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Profile Reconnaissance: zuck</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .report-card { background-color: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 25px; max-width: 600px; margin: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #555; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 20px; text-align: center; }
+        .data-item { margin-bottom: 15px; display: flex; }
+        .data-label { font-weight: bold; color: #666; min-width: 120px; flex-shrink: 0; }
+        .data-value { word-break: break-word; }
+        .status-verified { color: #0095f6; font-weight: bold; }
+        .status-private { color: #ed4956; font-weight: bold; }
+        .note { background-color: #fffbe6; border: 1px solid #ffe58f; border-radius: 4px; padding: 15px; margin-top: 25px; font-size: 0.9em; color: #8a6d3b; }
+    </style>
+</head>
+<body>
+    <div class="report-card">
+        <h1>Initial Profile Reconnaissance</h1>
+        
+        <div class="data-item">
+            <span class="data-label">Target User:</span>
+            <span class="data-value">@zuck</span>
+        </div>
+        <div class="data-item">
+            <span class="data-label">User ID:</span>
+            <span class="data-value">314216</span>
+        </div>
+        <div class="data-item">
+            <span class="data-label">Full Name:</span>
+            <span class="data-value">Mark Zuckerberg</span>
+        </div>
+        <div class="data-item">
+            <span class="data-label">Biography:</span>
+            <span class="data-value">I build stuff</span>
+        </div>
+        
+        <!-- Add Graph Data Section -->
+        <div class="data-item" style="display: block; border-top: 1px solid #eee; margin-top: 20px; padding-top: 20px;">
+            <span class="data-label" style="margin-bottom: 10px; display: block;">Extracted Graph Data (LLM):</span>
+            <div class="data-value" style="max-height: 300px; overflow-y: auto; background-color: #f8f8f8; padding: 10px; border-radius: 4px;">
+                <p>Extracted Graph Data (JSON):</p><pre><code>{
+  &quot;nodes&quot;: [
+    {
+      &quot;id&quot;: &quot;Building&quot;,
+      &quot;type&quot;: &quot;Topic&quot;
+    }
+  ],
+  &quot;edges&quot;: []
+}</code></pre>
+            </div>
+        </div>
+        
+        <div class="data-item">
+            <span class="data-label">Followers:</span>
+            <span class="data-value">15712573</span>
+        </div>
+        <div class="data-item">
+            <span class="data-label">Following:</span>
+            <span class="data-value">611</span>
+        </div>
+        <div class="data-item">
+            <span class="data-label">Status:</span>
+            <span class="data-value">
+                Public
+                <span class="status-verified"> | Verified</span>
+            </span>
+        </div>
+
+        <div class="note">
+            <strong>Note:</strong> Attempt to retrieve full post data via pagination failed. This may be due to API changes, rate limiting, or insufficient permissions. The report contains only reliably fetched profile metadata.
+        </div>
+    </div>
+</body>
+</html>
+        

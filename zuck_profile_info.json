@@ -1,0 +1,103 @@
+{
+    "data": {
+        "user": {
+            "ai_agent_type": null,
+            "biography": "I build stuff",
+            "bio_links": [],
+            "fb_profile_biolink": null,
+            "biography_with_entities": {
+                "raw_text": "I build stuff",
+                "entities": []
+            },
+            "blocked_by_viewer": false,
+            "restricted_by_viewer": false,
+            "country_block": false,
+            "eimu_id": "119171612803872",
+            "external_url": null,
+            "external_url_linkshimmed": null,
+            "edge_followed_by": {
+                "count": 15712507
+            },
+            "fbid": "17841401746480004",
+            "followed_by_viewer": false,
+            "edge_follow": {
+                "count": 611
+            },
+            "follows_viewer": false,
+            "full_name": "Mark Zuckerberg",
+            "group_metadata": null,
+            "has_ar_effects": false,
+            "has_clips": true,
+            "has_guides": false,
+            "has_chaining": true,
+            "has_channel": false,
+            "has_blocked_viewer": false,
+            "highlight_reel_count": 0,
+            "has_requested_viewer": false,
+            "hide_like_and_view_counts": false,
+            "id": "314216",
+            "is_business_account": false,
+            "is_professional_account": true,
+            "is_supervision_enabled": false,
+            "is_guardian_of_viewer": false,
+            "is_supervised_by_viewer": false,
+            "is_supervised_user": false,
+            "is_embeds_disabled": false,
+            "is_joined_recently": false,
+            "guardian_id": null,
+            "business_address_json": null,
+            "business_contact_method": "UNKNOWN",
+            "business_email": null,
+            "business_phone_number": null,
+            "business_category_name": null,
+            "overall_category_name": null,
+            "category_enum": null,
+            "category_name": "Entrepreneur",
+            "is_private": false,
+            "is_verified": true,
+            "is_verified_by_mv4b": false,
+            "is_regulated_c18": false,
+            "edge_mutual_followed_by": {
+                "count": 7,
+                "edges": [
+                    {
+                        "node": {
+                            "username": "archivethreads"
+                        }
+                    },
+                    {
+                        "node": {
+                            "username": "typecfemale"
+                        }
+                    },
+                    {
+                        "node": {
+                            "username": "fashunwithviren"
+                        }
+                    }
+                ]
+            },
+            "pinned_channels_list_count": 0,
+            "profile_pic_url": "https://scontent-iad3-2.cdninstagram.com/v/t51.2885-19/432827943_795126845797128_3130780271506186087_n.jpg?stp=dst-jpg_s150x150_tt6&_nc_ht=scontent-iad3-2.cdninstagram.com&_nc_cat=1&_nc_oc=Q6cZ2QGjbZZiJU4RsRbLcEFkWJuuImnh6t24x6-OJSwq09ya4h5aaiqTUaoUfrY-HymiOIE&_nc_ohc=E5vpoT9nVt4Q7kNvwFQg96i&_nc_gid=7TMFUc470oQ8f1oJY-EDXA&edm=AOQ1c0wBAAAA&ccb=7-5&oh=00_AYEL4gLd1beJDNUmE4IyX5ZjYxUz1h0B8JY1Gn-yp9FgAw&oe=67F6A5AA&_nc_sid=8b3546",
+            "profile_pic_url_hd": "https://scontent-iad3-2.cdninstagram.com/v/t51.2885-19/432827943_795126845797128_3130780271506186087_n.jpg?stp=dst-jpg_s320x320_tt6&_nc_ht=scontent-iad3-2.cdninstagram.com&_nc_cat=1&_nc_oc=Q6cZ2QGjbZZiJU4RsRbLcEFkWJuuImnh6t24x6-OJSwq09ya4h5aaiqTUaoUfrY-HymiOIE&_nc_ohc=E5vpoT9nVt4Q7kNvwFQg96i&_nc_gid=7TMFUc470oQ8f1oJY-EDXA&edm=AOQ1c0wBAAAA&ccb=7-5&oh=00_AYHrgAlrVlOHG3U2IWRinwhUr7CV1b9r9hvwkyXYDP-89w&oe=67F6A5AA&_nc_sid=8b3546",
+            "requested_by_viewer": false,
+            "should_show_category": false,
+            "should_show_public_contacts": false,
+            "show_account_transparency_details": true,
+            "transparency_label": null,
+            "transparency_product": null,
+            "username": "zuck",
+            "connected_fb_page": null,
+            "pronouns": [],
+            "edge_owner_to_timeline_media": {
+                "count": 392,
+                "page_info": {
+                    "has_next_page": true,
+                    "end_cursor": ""
+                },
+                "edges": []
+            }
+        }
+    },
+    "status": "ok"
+}

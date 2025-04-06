@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analysis Results for {{ username }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Include vis.js library -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <!-- Include Markdown-it library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/14.1.0/markdown-it.min.js"></script>
+    <style>
+        #network {
+            width: 100%;
+            height: 500px; /* Adjust height as needed */
+            border: 1px solid lightgray;
+            background-color: #f9f9f9;
+        }
+        .profile-info, .graph-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .profile-info p, .graph-section p {
+            margin: 5px 0;
+        }
+        .profile-info strong {
+             display: inline-block;
+             min-width: 100px; /* Align labels */
+        }
+        /* Add style for pre-wrap */
+        .preserve-whitespace {
+             white-space: pre-wrap;
+             word-wrap: break-word;
+             font-family: monospace; /* Use monospace for better formatting */
+             background-color: #f8f8f8;
+             padding: 10px;
+             border: 1px solid #eee;
+             border-radius: 4px;
+             margin-top: 10px;
+        }
+         /* Style for suggestions list */
+        .suggestions-list ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .suggestions-list li {
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed #eee;
+        }
+        .suggestions-list li:last-child {
+            border-bottom: none;
+        }
+        .suggestions-list .reasoning {
+            display: block;
+            font-size: 0.9em;
+            color: #606770;
+            margin-left: 15px;
+        }
+        /* Style for relevance notes */
+        .relevance-note {
+            font-size: 0.85em;
+            font-style: italic;
+            color: #555;
+            background-color: #eef;
+            padding: 5px 10px;
+            margin-top: 5px;
+            margin-bottom: 15px;
+            border-left: 3px solid #99d;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Analysis Results for <em>{{ username }}</em></h1>
+
+        <!-- General Error Display -->
+        {% if error %}
+            <div class="error section-box">
+                <h2>Profile Fetch Error:</h2>
+                <p>{{ error }}</p>
+                <p><a href="/">Try another username</a></p>
+            </div>
+        {% else %}
+            <!-- Profile Information Section -->
+            <div class="profile-info section-box">
+                <h2>Profile Information</h2>
+                 <p class="relevance-note">Basic profile details provide foundational context: name confirmation, account status, follower/following counts, and the raw biography text.</p>
+                {% if profile_info %}
+                    <p><strong>User ID:</strong> {{ user_id }}</p>
+                    <p><strong>Full Name:</strong> {{ profile_info.get('full_name', 'N/A') }}</p>
+                    <p><strong>Followers:</strong> {{ profile_info.get('followers_count', 'N/A') }}</p>
+                    <p><strong>Following:</strong> {{ profile_info.get('following_count', 'N/A') }}</p>
+                    <p><strong>Status:</strong>
+                        {{ 'Private' if profile_info.get('is_private') else 'Public' }}
+                        {{ '| Verified' if profile_info.get('is_verified') }}
+                    </p>
+                    <p><strong>Biography:</strong></p>
+                    <pre>{{ profile_info.get('biography', '(No biography)') }}</pre>
+                {% else %}
+                    <p>Could not load profile information.</p>
+                {% endif %}
+            </div>
+
+            <!-- LLM Reconnaissance Report Section -->
+            <div class="llm-report section-box">
+                <h2>Reconnaissance Report</h2>
+                 <p class="relevance-note">Provides a narrative summary, including overall sentiment and key takeaways from the bio.</p>
+                <div id="report-content">
+                    {{ llm_report | safe if llm_report else 'Report not available.' }}
+                </div>
+            </div>
+
+            <!-- LLM Forensic Notes Section -->
+            <div class="llm-forensic section-box">
+                <h2>Forensic Analysis Notes</h2>
+                 <p class="relevance-note">Highlights points of interest identified within the bio text, such as location mentions, URLs, keywords, or possible PII patterns (requires verification).</p>
+                 <p><i>Note: These observations are based *only* on the provided biography text and may require further verification.</i></p>
+                <div id="forensic-content" class="preserve-whitespace">
+                     {{ llm_forensic_notes | safe if llm_forensic_notes else 'Forensic notes not available.' }}
+                </div>
+            </div>
+
+             <!-- JSON Data Display Section (Optional/Debug) -->
+            <div class="llm-json-data section-box">
+                <h2>Raw Analysis Data (Debug View)</h2>
+                 <p class="relevance-note">Contains the full structured data returned by the analysis, including detailed entity extraction, analysis, threat indicators, and cross-platform link suggestions. Useful for detailed review.</p>
+                 {% if llm_error %}
+                    <p class="error"><strong>Analysis Data Error:</strong> {{ llm_error }}</p>
+                 {% endif %}
+                <details>
+                    <summary>Click to view/hide raw JSON</summary>
+                    <pre><code>{{ llm_json_data | tojson(indent=2) if llm_json_data else '{\n  "error": "No JSON data available."} '}}
+                    </code></pre>
+                </details>
+            </div>
+
+            <!-- Graph Visualization Section -->
+            <div class="graph-section section-box">
+                <h2>Biography Network Graph (Explicit Entities & Concepts)</h2>
+                 <p class="relevance-note">Visualizes connections based *only* on entities, activities, and concepts explicitly stated or clearly implied in the biography text.</p>
+                {% if llm_json_data and llm_json_data.get('error') and not graph_data_json %}
+                    <p class="error">Graph cannot be displayed due to analysis data error: {{ llm_json_data.get('error') }}</p>
+                {% elif graph_data_json and graph_data_json != 'null' %}
+                    <div id="network"></div>
+                    <script type="text/javascript">
+                        try {
+                            var graphData = {{ graph_data_json }};
+                            if (graphData && graphData.nodes && graphData.edges) {
+                                var container = document.getElementById('network');
+                                var data = {
+                                    nodes: new vis.DataSet(graphData.nodes),
+                                    edges: new vis.DataSet(graphData.edges)
+                                };
+                                var options = {
+                                    nodes: { shape: 'dot', size: 16, font: { size: 12, color: '#333' }, borderWidth: 2 },
+                                    edges: { width: 1, font: { size: 10, align: 'middle' }, arrows: { to: { enabled: true, scaleFactor: 0.5 } } },
+                                    physics: { forceAtlas2Based: { gravitationalConstant: -30, centralGravity: 0.005, springLength: 100, springConstant: 0.18 }, maxVelocity: 146, solver: 'forceAtlas2Based', timestep: 0.35, stabilization: { iterations: 150 } },
+                                    layout: { }, interaction: { tooltipDelay: 200, hideEdgesOnDrag: true }
+                                };
+                                var network = new vis.Network(container, data, options);
+                                console.log("Network graph rendered successfully.");
+                            } else {
+                                console.error("Graph data missing nodes/edges:", graphData);
+                                document.getElementById('network').innerHTML = '<p><i>Graph data received but is incomplete or invalid.</i></p>';
+                            }
+                        } catch (e) {
+                            console.error("Error rendering network graph:", e);
+                            document.getElementById('network').innerHTML = '<p><i>Error rendering graph. Check console.</i></p>';
+                        }
+                    </script>
+                {% else %}
+                    <p><i>No explicit entities or concepts found in the biography to generate a graph.</i></p>
+                {% endif %}
+            </div>
+
+             <!-- Suggestions Section -->
+             <div class="suggestions-list section-box">
+                 <h2>Related Suggestions</h2>
+                 <p class="relevance-note">Provides suggestions for related users, hashtags, and topics based on the profile analysis. These can offer leads for further investigation but require verification.</p>
+                {% set suggestions = llm_json_data.get('suggestions_for_investigation') if llm_json_data and not llm_json_data.get('error') else None %}
+                
+                <h3>Potential Similar Users:</h3>
+                {% if suggestions and suggestions.get('similar_users_suggested') %}
+                     <ul>
+                         {% for user in suggestions.similar_users_suggested %}
+                             <li>
+                                 <strong>{{ user.suggestion }}</strong>
+                                 <span class="reasoning">{{ user.reasoning }}</span>
+                             </li>
+                         {% endfor %}
+                     </ul>
+                {% else %}
+                     <p><i>No similar users suggested.</i></p>
+                {% endif %}
+
+                <h3>Potential Relevant Hashtags:</h3>
+                {% if suggestions and suggestions.get('relevant_hashtags_suggested') %}
+                     <ul>
+                         {% for tag in suggestions.relevant_hashtags_suggested %}
+                             <li>
+                                 <strong>{{ tag.suggestion }}</strong>
+                                 <span class="reasoning">{{ tag.reasoning }}</span>
+                             </li>
+                         {% endfor %}
+                     </ul>
+                 {% else %}
+                     <p><i>No relevant hashtags suggested.</i></p>
+                 {% endif %}
+
+                <h3>Potential Topics to Monitor:</h3>
+                {% if suggestions and suggestions.get('topics_to_monitor') %}
+                     <ul>
+                         {% for topic in suggestions.topics_to_monitor %}
+                             <li>{{ topic }}</li>
+                         {% endfor %}
+                     </ul>
+                 {% else %}
+                     <p><i>No specific topics suggested for monitoring.</i></p>
+                 {% endif %}
+             </div>
+
+             <p><a href="/">Analyze another profile</a></p>
+        {% endif %}
+    </div>
+
+    <!-- Initialize Markdown-it -->
+    <script>
+        const md = window.markdownit();
+        const reportContentEl = document.getElementById('report-content');
+        const forensicContentEl = document.getElementById('forensic-content');
+        
+        if (reportContentEl) {
+            // Use innerText or textContent to get the raw markdown/text
+            const rawReport = reportContentEl.textContent || reportContentEl.innerText || "";
+            reportContentEl.innerHTML = md.render(rawReport.trim());
+        }
+        if (forensicContentEl) {
+            const rawForensic = forensicContentEl.textContent || forensicContentEl.innerText || "";
+            // Render forensic notes *without* markdown interpretation for pre-wrap formatting
+             // If you want markdown in forensic notes, use md.render() instead.
+            // forensicContentEl.innerHTML = md.render(rawForensic.trim()); 
+            forensicContentEl.textContent = rawForensic.trim(); // Keep as preformatted text
+        }
+    </script>
+
+</body>
+</html>
