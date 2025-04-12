@@ -1,9 +1,19 @@
-
 import requests
 import time
 import json
 import os # Added for potential env var usage later
 import re # Added for parsing mentions
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import WebDriverException
+# Consider using WebDriverWait for more robust waits
+# from selenium.webdriver.support.ui import WebDriverWait
+# from selenium.webdriver.support import expected_conditions as EC
+# from selenium.webdriver.common.by import By
+
+# You might need webdriver-manager if ChromeDriver isn't in your PATH
+# pip install selenium webdriver-manager
+# from webdriver_manager.chrome import ChromeDriverManager 
 
 
 def get_instagram_profile_info(username, cookies):
@@ -202,6 +212,69 @@ def parse_profile_data(filename):
     return extracted_posts
 
 
+def get_instagram_cookies(driver: webdriver.Chrome):
+    """
+    Attempts to retrieve cookies from the current Instagram session.
+    Assumes the user is *already logged in* within the browser session 
+    controlled by the driver.
+
+    Args:
+        driver: An active Selenium WebDriver instance potentially logged into Instagram.
+
+    Returns:
+        A list of cookie dictionaries obtained from the browser, 
+        or None if an error occurs or no cookies are found.
+    """
+    try:
+        # Optional: Navigate to a page that confirms login state, like the profile edit page
+        # driver.get("https://www.instagram.com/accounts/edit/")
+        # Or simply ensure you are on an Instagram page
+        current_url = driver.current_url
+        if "instagram.com" not in current_url:
+            print("Warning: Not on an Instagram domain. Navigating to homepage.")
+            driver.get("https://www.instagram.com/")
+            # Using a fixed sleep based on your original code.
+            # Replace with WebDriverWait for better reliability.
+            time.sleep(5) 
+
+        print("Attempting to retrieve cookies...")
+        cookies = driver.get_cookies()
+
+        if not cookies:
+            print("No cookies found. Ensure you are logged in to Instagram in this browser session.")
+            return None
+
+        print(f"Successfully retrieved {len(cookies)} cookies.")
+        
+        # The 'sessionid' cookie is typically the main session identifier.
+        session_cookie = next((cookie for cookie in cookies if cookie['name'] == 'sessionid'), None)
+        if session_cookie:
+             # Avoid printing the full sensitive session ID value in logs
+            print(f"Found 'sessionid' cookie (value starts with: {session_cookie['value'][:10]}...).")
+        else:
+            print("Warning: The 'sessionid' cookie was not found. You might not be fully logged in.")
+
+        # The original code also checked localStorage for 'Session'. This might be
+        # specific to a particular flow or older version. Usually, HTTP cookies 
+        # (like 'sessionid') are sufficient for session management.
+        # If you specifically need that localStorage item:
+        # try:
+        #     session_local = driver.execute_script("return window.localStorage.getItem('Session');")
+        #     print(f"Value from localStorage for key 'Session': {session_local}")
+        # except Exception as e:
+        #     print(f"Could not retrieve 'Session' from localStorage: {e}")
+
+
+        return cookies
+
+    except WebDriverException as e:
+        print(f"A WebDriver error occurred: {e}")
+        return None
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return None
+
+
 if __name__ == "__main__":
     main()
 
@@ -228,3 +301,42 @@ if __name__ == "__main__":
     else:
         print(f"\nJSON file {json_filename} not found. Skipping parsing step.")
         print("Ensure the main scraping function ran successfully first.")
+
+    # --- Example Usage ---
+    # You would need to instantiate the driver and handle login *before* calling the function.
+
+    # Example (Conceptual - requires manual login in the browser):
+    # if __name__ == "__main__":
+    #     options = webdriver.ChromeOptions()
+    #     # Add any necessary options (e.g., user data directory if you want to use an existing profile)
+    #     # options.add_argument("user-data-dir=/path/to/your/chrome/profile") 
+    #     service = Service() # Assumes chromedriver is in PATH or use ChromeDriverManager
+    #     driver = webdriver.Chrome(service=service, options=options)
+    
+    #     try:
+    #         driver.get("https://www.instagram.com/accounts/login/")
+    #         print("Please log in to Instagram in the browser window that opened.")
+    #         print("Press Enter in this console after you have logged in...")
+    #         input() # Pauses script execution until user presses Enter
+
+    #         # Now that login is presumably done, get the cookies
+    #         ig_cookies = get_instagram_cookies(driver)
+
+    #         if ig_cookies:
+    #             print("\n--- Retrieved Cookies ---")
+    #             # Process or save the cookies as needed
+    #             for cookie in ig_cookies:
+    #                  print(f"- {cookie['name']}: {cookie['value'][:20]}...") # Print truncated value
+            
+    #             # You could save these cookies to a file (e.g., using json)
+    #             # import json
+    #             # with open("instagram_cookies.json", "w") as f:
+    #             #     json.dump(ig_cookies, f)
+    #             # print("\nCookies saved to instagram_cookies.json")
+
+    #     except Exception as e:
+    #         print(f"An error occurred during the process: {e}")
+    #     finally:
+    #         if 'driver' in locals() and driver:
+    #             print("Closing browser...")
+    #             driver.quit()

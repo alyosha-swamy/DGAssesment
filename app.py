@@ -79,7 +79,8 @@ def analyze():
 
     # Fetch profile info
     print(f"--- Starting analysis for: {username} ---")
-    user_id, basic_info, profile_error = get_user_info_and_id(username, cookies, headers)
+    # Expect user_id, basic_info, post_edges, profile_error
+    user_id, basic_info, post_edges, profile_error = get_user_info_and_id(username, cookies, headers)
 
     # Initialize result variables
     llm_report = "Analysis not performed."
@@ -100,8 +101,8 @@ def analyze():
             biography = "" # Ensure it's a string for LLM calls
 
         print("Starting parallel LLM analyses...")
-        # Call the parallel function from scraper_utils
-        analysis_results = run_all_analyses_parallel(username, biography)
+        # Call the parallel function from scraper_utils, now including post_edges
+        analysis_results = run_all_analyses_parallel(username, biography, post_edges)
 
         # Extract results from the returned dictionary
         llm_report = analysis_results.get("report", "Report generation failed or task did not complete.")

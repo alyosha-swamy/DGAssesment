@@ -12,13 +12,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed # For parallelis
 # as they were unreliable and we are focusing on profile info + LLM analysis of bio.
 
 # --- Constants ---
-# Set your API Key securely here or via environment variables
-# WARNING: Hardcoding is a security risk!
-API_KEY = ""
+# Set your API Key securely via environment variables
+# NEVER hardcode API keys in production code!
+API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 DEFAULT_MODEL = "google/gemini-2.5-pro-preview-03-25"
 
 def get_user_info_and_id(username, cookies, headers):
-    """Fetches basic profile info and the crucial user ID."""
+    """Fetches basic profile info, user ID, and initial post edges if available."""
     # Reuse the existing function, ensure it returns None, None on specific errors
     url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
     print(f"Fetching user info for {username}...") # Log start
@@ -26,15 +26,19 @@ def get_user_info_and_id(username, cookies, headers):
         response = requests.get(url, headers=headers, cookies=cookies, timeout=15)
         response.raise_for_status()
         data = response.json()
+        # --- Added line to print the raw JSON response ---
+        # print("--- Raw JSON Response from web_profile_info ---:")
+        # print(json.dumps(data, indent=2)) # Temporarily commented out for cleaner logs
+        # print("-----------------------------------------------")
         user_data = data.get('data', {}).get('user', {})
         if not user_data:
             print(f"Error: Could not find 'user' object in profile info for {username}")
-            return None, None, "User object not found in response"
+            return None, None, None, "User object not found in response"
 
         user_id = user_data.get('id')
         if not user_id:
             print(f"Error: Could not extract user ID for {username}")
-            return None, None, "User ID not found in response"
+            return None, None, None, "User ID not found in response"
 
         basic_info = {
             'full_name': user_data.get('full_name'),
@@ -46,8 +50,16 @@ def get_user_info_and_id(username, cookies, headers):
             # Add profile pic URL if needed
             'profile_pic_url': user_data.get('profile_pic_url_hd') or user_data.get('profile_pic_url')
         }
-        print(f"Successfully fetched info for User ID: {user_id}")
-        return user_id, basic_info, None # Return None for error message on success
+
+        # --- Extract initial post edges --- 
+        post_edges = user_data.get('edge_owner_to_timeline_media', {}).get('edges', [])
+        post_count = user_data.get('edge_owner_to_timeline_media', {}).get('count', 0)
+        if post_edges:
+             print(f"Successfully fetched info for User ID: {user_id}. Found {len(post_edges)} initial post edges (out of {post_count}).")
+        else:
+             print(f"Successfully fetched info for User ID: {user_id}. No initial post edges found in this response (Total posts: {post_count}).")
+
+        return user_id, basic_info, post_edges, None # Return posts and None for error on success
 
     except requests.exceptions.HTTPError as http_err:
         print(f"HTTP error fetching initial profile info for {username}: {http_err}")
@@ -61,149 +73,54 @@ def get_user_info_and_id(username, cookies, headers):
              error_msg = "Rate Limited (429 Error) - Wait before trying again"
         # Optionally log response text for debugging other errors
         # print(f"Response text: {http_err.response.text[:500]}...")
-        return None, None, error_msg
+        return None, None, None, error_msg # Return None for posts on error
 
     except requests.exceptions.RequestException as e:
         print(f"Network error fetching initial profile info for {username}: {e}")
-        return None, None, f"Network Error: {e.__class__.__name__}"
+        return None, None, None, f"Network Error: {e.__class__.__name__}" # Return None for posts on error
     except json.JSONDecodeError:
         print(f"Failed to decode JSON response for initial profile info for {username}.")
-        return None, None, "Invalid JSON Response Received"
+        return None, None, None, "Invalid JSON Response Received" # Return None for posts on error
     except Exception as e:
         print(f"An unexpected error occurred fetching profile info: {e}")
-        return None, None, f"Unexpected Error: {e.__class__.__name__}"
+        return None, None, None, f"Unexpected Error: {e.__class__.__name__}" # Return None for posts on error
 
-def extract_graph_data_llm(biography_text):
-    """Extracts entities, relationships, summary, inferred items, and suggestions using OpenRouter LLM."""
-    # Default structure for success or partial failure
-    default_result = {
-        "graph_data": {"nodes": [{"id": "profile_owner", "label": "Profile Owner", "type": "Person"}], "edges": []},
-        "summary": "Analysis incomplete.",
-        "inferred_items": [],
-        "related_suggestions": {"similar_users": [], "similar_hashtags": []},
-        "error": None # No error initially
-    }
+# ----- NEW HELPER FUNCTION -----
+def _prepare_post_data_for_llm(post_edges, max_posts=5, max_caption_len=200):
+    """Extracts key info from post edges and formats it as a string for LLM prompts."""
+    if not post_edges:
+        return "No initial posts data provided."
 
-    if not biography_text:
-        default_result["summary"] = "No biography text provided."
-        default_result["error"] = "No biography text provided"
-        return default_result
+    post_summaries = []
+    limited_edges = post_edges[:max_posts] # Limit number of posts
 
-    try:
-        # WARNING: Hardcoding API key is a security risk!
-        api_key = "" # Ensure this is your actual key
-        if not api_key or "YOUR_" in api_key:
-            print("Error: OPENROUTER_API_KEY is not set or is still a placeholder.")
-            default_result["summary"] = "LLM analysis skipped: Missing API key."
-            default_result["error"] = "API Key Missing or Placeholder"
-            return default_result
+    for i, edge in enumerate(limited_edges):
+        node = edge.get('node', {})
+        shortcode = node.get('shortcode', 'N/A')
+        typename = node.get('__typename', 'UnknownType')
+        timestamp = node.get('taken_at_timestamp')
+        dt_object = datetime.fromtimestamp(timestamp, tz=pytz.utc) if timestamp else None
+        formatted_time = dt_object.strftime('%Y-%m-%d %H:%M:%S %Z') if dt_object else "No Timestamp"
 
-        print(f"Extracting complex analysis+suggestions from biography: \"{biography_text[:50]}...\"")
+        caption_node = node.get('edge_media_to_caption', {}).get('edges', [{}])[0].get('node', {})
+        caption_text = caption_node.get('text', '')
+        truncated_caption = (caption_text[:max_caption_len] + '...') if len(caption_text) > max_caption_len else caption_text
 
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-        )
+        likes = node.get('edge_liked_by', {}).get('count', 0)
+        comments = node.get('edge_media_to_comment', {}).get('count', 0)
+        views = node.get('video_view_count') # None if not a video or not present
 
-        # Enhanced prompt for complex analysis including suggestions
-        prompt = f"""**Task:** Perform a detailed analysis of the provided Instagram biography. Extract a comprehensive knowledge graph, provide a summary with sentiment, infer potential related items, and suggest potentially similar users/hashtags.
+        summary = f"  Post {i+1} ({shortcode}, {typename}, {formatted_time}):\n"
+        summary += f"    Likes: {likes}, Comments: {comments}"
+        if views is not None:
+            summary += f", Views: {views}"
+        summary += f"\n    Caption: \"{truncated_caption}\"\n"
+        post_summaries.append(summary)
 
-**Biography:** "{biography_text}"
+    header = f"Summary of the first {len(limited_edges)} posts (out of {len(post_edges)} initially retrieved):\n"
+    return header + "\n".join(post_summaries)
 
-**Instructions:**
-1.  **Analyze Biography:** Read the biography text carefully.
-2.  **Extract Explicit Graph (Comprehensive):** Identify **all possible** entities (Person, Organization, Brand, Project, Location, Website, Hashtag, Skill, Interest, Topic) explicitly mentioned or strongly implied in the bio. Create a detailed graph with `nodes` (with `id`, `label`, `type`) and `edges` (with `from`, `to`, `label`) representing these direct connections. Be exhaustive. Include a `profile_owner` node `{{"id": "profile_owner", "label": "Profile Owner", "type": "Person"}}` in the nodes list, even if no other nodes are found. Connect relevant extracted entities to `profile_owner`.
-3.  **Summarize and Assess Sentiment:** Write a brief text `summary` (2-3 sentences) capturing the key themes or focus of the biography. If the bio is sparse, state that. Analyze the overall sentiment of the *biography text itself* and include it (e.g., "Overall sentiment appears Positive/Neutral/Negative/Not Applicable.").
-4.  **Infer/Generate Potential Items (Highly Speculative):** Based on the biography (if any), username, and general context/knowledge, generate a list (`inferred_items`) of 3-5 *potentially relevant* entities (Topics, Interests, Hashtags, People, Organizations) that the user *might* be associated with. **Generate these even if the bio provides little information.** For each item, provide: `label`, `type` (indicating speculation, e.g., "Potential Topic"), and a *very brief* `reasoning`. **Do NOT add sentiment scores.**
-5.  **Suggest Related Users/Hashtags (Speculative Simulation):** Based on the analysis (bio, inferred items, context), simulate finding related content. Generate an object (`related_suggestions`) containing two keys:
-    *   `similar_users`: A list of 2-4 objects, each representing a potentially similar Instagram user. Each object should have:
-        *   `suggestion`: The suggested username (string, e.g., "@similar_user").
-        *   `reasoning`: A brief explanation (string) why this user might be relevant (e.g., "Shares interest in AI").
-    *   `similar_hashtags`: A list of 2-4 objects, each representing a potentially relevant hashtag. Each object should have:
-        *   `suggestion`: The suggested hashtag (string, e.g., "#relevanttopic").
-        *   `reasoning`: A brief explanation (string) why this hashtag might be relevant (e.g., "Related to mentioned project").
-    *   These suggestions are speculative LLM outputs based on patterns, not real-time network analysis.
-6.  **Output Format:** Return ONLY a single, valid JSON object with the following top-level keys:
-    *   `graph_data`: Object with `nodes` and `edges` (from step 2).
-    *   `summary`: String summary with sentiment (from step 3).
-    *   `inferred_items`: List of inferred item objects (from step 4).
-    *   `related_suggestions`: Object with `similar_users` list and `similar_hashtags` list (from step 5).
-    *   **It is absolutely critical that the entire output is valid JSON and nothing else.**
-7.  **Empty/Minimal Cases Handling:**
-    *   Always return the full JSON structure.
-    *   If the bio is empty, populate fields appropriately (e.g., empty graph edges, summary indicating emptiness, generated inferred items and suggestions based on context). Ensure `related_suggestions` and its lists exist, even if empty.
-
-**JSON Output:**"""
-
-        completion = client.chat.completions.create(
-            model="google/gemini-2.5-pro-preview-03-25", # Make sure model name is correct
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            max_tokens=4000, # Increased tokens again for suggestions
-            temperature=0.55 # Slightly more creative temp
-        )
-
-        llm_response_content = completion.choices[0].message.content.strip()
-        print(f"  LLM Raw Response (Suggestive): {llm_response_content[:300]}...") # Log raw response
-
-        try:
-            # Clean potential markdown code fences
-            if llm_response_content.startswith("```json"):
-                llm_response_content = llm_response_content.strip("```json\n `")
-            elif llm_response_content.startswith("```"):
-                 llm_response_content = llm_response_content.strip("```\n `")
-
-            analysis_data = json.loads(llm_response_content)
-
-            # Validate the extended structure
-            if (isinstance(analysis_data, dict) and
-                isinstance(analysis_data.get("graph_data"), dict) and
-                isinstance(analysis_data["graph_data"].get("nodes"), list) and
-                isinstance(analysis_data["graph_data"].get("edges"), list) and
-                isinstance(analysis_data.get("summary"), str) and
-                isinstance(analysis_data.get("inferred_items"), list) and
-                isinstance(analysis_data.get("related_suggestions"), dict) and
-                isinstance(analysis_data["related_suggestions"].get("similar_users"), list) and
-                isinstance(analysis_data["related_suggestions"].get("similar_hashtags"), list)):
-
-                 # Optional: Deeper validation of suggestion structure could go here
-
-                 # Ensure profile_owner node exists in graph_data.nodes
-                 nodes = analysis_data["graph_data"].get("nodes", [])
-                 if not any(node.get("id") == "profile_owner" for node in nodes):
-                     print("  Warning: LLM response missing 'profile_owner' node. Adding it.")
-                     analysis_data["graph_data"]["nodes"].insert(0, {"id": "profile_owner", "label": "Profile Owner", "type": "Person"})
-
-                 print(f"  Successfully parsed complex analysis+suggestions JSON.")
-                 analysis_data["error"] = None # Explicitly set error to None on success
-                 return analysis_data # Return the whole dict
-            else:
-                print("  Warning: LLM response parsed but missing required structure (graph_data, summary, inferred_items, related_suggestions).")
-                default_result["summary"] = "LLM analysis failed: Response missing required structure."
-                default_result["error"] = "LLM response missing required structure"
-                default_result["raw_response"] = llm_response_content
-                return default_result
-
-        except json.JSONDecodeError as json_err:
-            print(f"  Error: Failed to parse LLM response as JSON. {json_err}")
-            default_result["summary"] = "LLM analysis failed: Invalid JSON response."
-            default_result["error"] = "LLM response was not valid JSON"
-            default_result["raw_response"] = llm_response_content
-            return default_result
-
-    except Exception as e:
-        error_type = e.__class__.__name__
-        error_message = str(e)
-        print(f"Error during OpenRouter LLM complex analysis+suggestions: {error_type}: {error_message}")
-        # import traceback
-        # traceback.print_exc()
-        default_result["summary"] = f"LLM analysis failed: {error_type}"
-        default_result["error"] = f"LLM Error: {error_type}"
-        return default_result
+# --- Original extract_graph_data_llm removed as JSON generation is handled by extract_json_data_llm ---
 
 # Helper to prepare headers (moved from old main)
 def prepare_headers(username, cookies):
@@ -228,9 +145,9 @@ def prepare_headers(username, cookies):
 # Helper to prepare cookies (moved from old main)
 def prepare_cookies():
     # WARNING: Hardcoding cookies is a security risk! Replace with your actual values.
-    session_id = "YOUR_INSTAGRAM_SESSIONID" # Replace! os.getenv("INSTAGRAM_SESSIONID", "...")
-    ds_user_id_val = "YOUR_INSTAGRAM_DS_USER_ID" # Replace! os.getenv("INSTAGRAM_DS_USER_ID", "...")
-    csrf_token_val = "YOUR_INSTAGRAM_CSRFTOKEN" # Replace! os.getenv("INSTAGRAM_CSRFTOKEN", "...")
+    session_id = "60078234834%3ArnOpb62xkuBKLX%3A12%3AAYcbk03m8QjbURU6hgrPRhbFGLatzWvp3aYyGRcmmxjc" # Replace! os.getenv("INSTAGRAM_SESSIONID", "...")
+    ds_user_id_val = "60078234834" # Replace! os.getenv("INSTAGRAM_DS_USER_ID", "...")
+    csrf_token_val = "f0n3xVrSHEcNRC0MKk4N9XIGBq8RxrHx" # Replace! os.getenv("INSTAGRAM_CSRFTOKEN", "...")
 
     # Added checks for placeholders
     if not all([session_id, ds_user_id_val, csrf_token_val]) or \
@@ -270,28 +187,35 @@ def _call_llm(api_key, model, prompt, max_tokens, temperature):
 
 # --- Specific Analysis Functions ---
 
-def generate_report_llm(api_key, username, biography_text):
-    """Generates the narrative reconnaissance report."""
+def generate_report_llm(api_key, username, biography_text, post_edges): # Added post_edges
+    """Generates the narrative reconnaissance report, incorporating post data."""
     model = DEFAULT_MODEL
-    max_tokens = 1000
+    max_tokens = 1500 # Increased tokens for post analysis
     temperature = 0.5
 
-    report_prompt = f"""**Task:** Generate an "Initial Profile Reconnaissance" report based *only* on the provided Instagram biography text and username context. Output ONLY plain text.
+    # Prepare post data summary
+    post_summary = _prepare_post_data_for_llm(post_edges)
 
-**Username Context:** Analyze potential implications of the username ({username}) itself if relevant.
+    report_prompt = f"""**Task:** Generate an "Initial Profile Reconnaissance" report based on the provided Instagram username, biography text, AND summary of recent posts. Output ONLY plain text.
+
+**Username Context:** {username}
 **Biography Text:** "{biography_text}"
+
+**Recent Post Summary:**
+{post_summary}
 
 **Report Structure (Use Plain Text Headings/Lists):**
 1.  Profile Overview: Briefly mention the username ({username}).
 2.  Biography Summary: Summarize the key themes, stated purpose, or activities mentioned in the biography text (2-4 sentences). If empty or nonsensical, state that.
-3.  Sentiment Analysis: State the inferred overall sentiment of the biography text (Positive, Negative, Neutral, Mixed, or Not Applicable if empty/nonsensical).
-4.  Key Information Extraction: List any explicitly mentioned key entities like locations, organizations, projects, or skills identified directly *in the bio text*. If none, state "No specific entities mentioned." Use simple list format (e.g., "- Entity 1").
-5.  Potential Interests (Inferred): Briefly mention 1-2 potential high-level interests that *might* be inferred *speculatively* from the bio or username, clearly labeling them as such (e.g., "Potential interest in [topic] based on bio phrasing."). If none inferred, state "No specific interests could be reasonably inferred."
-6.  Concluding Remark: Add a brief concluding sentence (e.g., "Analysis based solely on provided bio text.").
+3.  Recent Activity Analysis: Based *only* on the 'Recent Post Summary' provided above, summarize the apparent themes, topics, or types of content from the recent posts (2-4 sentences). Mention any notable patterns (e.g., frequent video posts, specific topics in captions). If no posts provided, state that.
+4.  Sentiment Analysis: State the inferred overall sentiment considering *both* the biography text *and* the tone of recent post captions (Positive, Negative, Neutral, Mixed, or Not Applicable).
+5.  Key Information Extraction: List any explicitly mentioned key entities (locations, organizations, projects, skills, @mentions, #hashtags) identified *in the bio text OR in the provided post captions*. If none, state "No specific entities mentioned in bio or recent posts." Use simple list format.
+6.  Potential Interests (Inferred): Briefly mention 1-3 potential high-level interests that *might* be inferred *speculatively* from the bio, username, *or recent post content*, clearly labeling them as speculative (e.g., "Potential interest in [topic] based on post captions about X."). If none inferred, state "No specific interests could be reasonably inferred."
+7.  Concluding Remark: Add a brief concluding sentence (e.g., "Analysis based on provided bio and summary of recent posts.").
 
-**Output:** Generate ONLY the plain text report. **Do NOT use any markdown formatting (no asterisks, no hashes, no markdown lists).** Use simple line breaks for structure.
+**Output:** Generate ONLY the plain text report. **Do NOT use any markdown formatting (no asterisks, no hashes, no markdown lists).** Use simple line breaks for structure. Address all sections.
 """
-    print("Generating narrative report...")
+    print("Generating narrative report (with post data)...")
     report_text = _call_llm(api_key, model, report_prompt, max_tokens, temperature)
     if report_text.startswith("LLM_ERROR"):
          print(f"  Report generation failed: {report_text}")
@@ -299,26 +223,33 @@ def generate_report_llm(api_key, username, biography_text):
     print("  Report generation successful.")
     return report_text
 
-def generate_forensic_analysis_llm(api_key, username, biography_text):
-    """Generates text notes highlighting potential forensic points of interest."""
+def generate_forensic_analysis_llm(api_key, username, biography_text, post_edges): # Added post_edges
+    """Generates text notes highlighting potential forensic points of interest from bio and posts."""
     model = DEFAULT_MODEL
-    max_tokens = 1000
+    max_tokens = 1500 # Increased tokens for post analysis
     temperature = 0.4
 
-    forensic_prompt = f"""**Task:** Analyze the provided Instagram biography text *strictly* for potential digital forensic points of interest. Focus *only* on patterns and explicit mentions within the text provided. **Do not make assumptions beyond the text.** Output ONLY plain text.
+    # Prepare post data summary
+    post_summary = _prepare_post_data_for_llm(post_edges)
+
+    forensic_prompt = f"""**Task:** Analyze the provided Instagram biography text AND recent post summary *strictly* for potential digital forensic points of interest. Focus *only* on patterns and explicit mentions within the text provided. **Do not make assumptions beyond the text.** Output ONLY plain text.
 
 **Biography Text:** "{biography_text}"
 
-**Analysis Points (Use Plain Text Headings/Lists):**
-1.  Potential PII Indicators: Identify any patterns that *might resemble* PII (e.g., email format `user@domain.com`, phone number patterns `XXX-XXX-XXXX`, specific location names). Note the *presence* of the pattern/mention found in the text. If none, state "No direct PII pattern indicators identified in the bio text."
-2.  Explicitly Mentioned Locations: List any specific cities, states, countries, or landmarks mentioned. If none, state "No locations mentioned." Use simple list format (e.g., "- Location 1").
-3.  Explicit Mentions/Connections: List any other usernames (@mentions) or specific websites (URLs beginning with http/https) found directly in the text. If none, state "No external usernames or URLs mentioned." Use simple list format.
-4.  Keywords/Themes of Interest: List 3-5 key terms or concepts directly present in the bio that might be relevant for further investigation (e.g., specific technologies, project names, organizations, event names). If none, state "No specific keywords/themes identified." Use simple list format.
-5.  Language/Tone Notes: Briefly comment if the language used seems unusual, coded, highly technical, or noteworthy in tone (optional, only if prominent).
+**Recent Post Summary:**
+{post_summary}
 
-**Output:** Generate ONLY the analysis notes as plain text. Use simple headings (e.g., "1. Potential PII Indicators:") and simple lists (e.g., "- Item"). **Do NOT use any markdown formatting.** State clearly if no relevant information was found for a point. Emphasize that findings are based solely on the provided text.
+**Analysis Points (Use Plain Text Headings/Lists):**
+1.  Potential PII Indicators: Identify any patterns that *might resemble* PII (e.g., email format, phone patterns, specific location names) mentioned explicitly *in the bio OR the provided post captions*. Note the *presence* of the pattern/mention. If none, state "No direct PII pattern indicators identified in bio or recent post captions."
+2.  Explicitly Mentioned Locations: List any specific cities, states, countries, landmarks, or geotagged locations mentioned *in the bio OR post captions/data*. If none, state "No locations mentioned." Use simple list format.
+3.  Explicit Mentions/Connections: List any other usernames (@mentions), specific websites (URLs), or #hashtags found directly *in the bio or post captions*. If none, state "No external usernames, URLs, or hashtags mentioned." Use simple list format.
+4.  Keywords/Themes of Interest: List 3-5 key terms, concepts, or topics directly present *in the bio or post captions* that might be relevant for further investigation (e.g., specific tech, projects, orgs, events, sentiments). If none, state "No specific keywords/themes identified." Use simple list format.
+5.  Posting Activity Notes: Briefly comment on the posting times or frequency *if discernible from the provided timestamps* (e.g., "Posts mainly during UTC evenings", "Apparent gap in posting"). If timestamps are unavailable or insufficient, state "Posting activity patterns not analyzed."
+6.  Language/Tone Notes: Briefly comment if the language used *in the bio or posts* seems unusual, coded, highly technical, or noteworthy in tone (optional, only if prominent).
+
+**Output:** Generate ONLY the analysis notes as plain text. Use simple headings (e.g., "1. Potential PII Indicators:") and simple lists (e.g., "- Item"). **Do NOT use any markdown formatting.** State clearly if no relevant information was found for a point. Emphasize that findings are based solely on the provided text and post summary.
 """
-    print("Generating forensic notes...")
+    print("Generating forensic notes (with post data)...")
     forensic_text = _call_llm(api_key, model, forensic_prompt, max_tokens, temperature)
     if forensic_text.startswith("LLM_ERROR"):
          print(f"  Forensic note generation failed: {forensic_text}")
@@ -327,20 +258,27 @@ def generate_forensic_analysis_llm(api_key, username, biography_text):
     return forensic_text
 
 
-def extract_json_data_llm(api_key, username, biography_text):
-    """Generates the structured forensic JSON data."""
+def extract_json_data_llm(api_key, username, biography_text, post_edges): # Added post_edges
+    """Generates the structured forensic JSON data, incorporating post analysis."""
     model = DEFAULT_MODEL
-    max_tokens = 6000 # Needs generous tokens for complex structure + reasoning
+    max_tokens = 7000 # INCREASED tokens significantly for post details + analysis
     temperature = 0.5
 
     timestamp = datetime.now(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     escaped_bio = json.dumps(biography_text) # Escape bio text for safe JSON embedding
 
-    # Revised JSON prompt (more explicit graph focus, more inventive)
-    json_prompt = f"""**Task:** Perform a detailed forensic analysis of the provided Instagram username and biography. Extract structured data relevant for Social Media Analysis Toolkit (SMAT) investigations. Generate ONLY a single, valid JSON object adhering strictly to the specified structure. Be exhaustive and inventive in extracting explicit graph data, even from simple bios. Infer and generate relevant details, clearly marking speculation.
+    # --- Prepare detailed post data for JSON output ---
+    # (This is done by the LLM based on instructions below, but we need the prompt structure)
+    # We also pass the summary to the LLM for context
+    post_summary_for_prompt = _prepare_post_data_for_llm(post_edges, max_posts=5, max_caption_len=150) # Shorter summary for prompt context
+
+    # Revised JSON prompt with post analysis integration
+    json_prompt = f"""**Task:** Perform a detailed forensic analysis of the provided Instagram username, biography, AND recent post summary. Extract structured data relevant for Social Media Analysis Toolkit (SMAT) investigations. Generate ONLY a single, valid JSON object adhering strictly to the specified structure. Be exhaustive and inventive, incorporating information from BOTH bio and posts.
 
 **Username:** "{username}"
 **Biography Text:** {escaped_bio} // Biography text is pre-escaped for JSON
+**Recent Post Summary (Context for LLM):**
+{post_summary_for_prompt} // This is a summary; use it AND your general knowledge to interpret potential post content.
 
 **JSON Output Structure:**
 {{
@@ -352,16 +290,33 @@ def extract_json_data_llm(api_key, username, biography_text):
     "username": "{username}",
     "biography_text": {escaped_bio}
   }},
-  "linguistic_analysis": {{
-    "summary": "string",
+  // --- NEW: Section for analyzed post data ---
+  "initial_posts_summary": [
+      // Populate this list based on the 'Recent Post Summary' provided above.
+      // For each post summarized, create an object like this:
+      // {{
+      //   "post_index": "integer (1-based)",
+      //   "shortcode": "string",
+      //   "type": "string (e.g., GraphVideo, GraphImage)",
+      //   "timestamp_utc": "string (YYYY-MM-DD HH:MM:SS Z)",
+      //   "caption_snippet": "string (brief snippet)",
+      //   "likes_count": "integer",
+      //   "comments_count": "integer",
+      //   "views_count": "integer or null",
+      //   "detected_entities_in_caption": ["list", "of", "strings"], // Entities extracted *by the LLM* from this post's caption
+      //   "inferred_topics_in_caption": ["list", "of", "strings"]  // Topics inferred *by the LLM* from this post's caption
+      // }}
+  ],
+  "linguistic_analysis": {{ // Consider bio AND post captions
+    "summary": "string (Overall summary considering bio and posts)",
     "language": "string",
     "sentiment_overall_label": "string",
     "sentiment_overall_score": "float",
-    "keywords": ["list", "of", "strings"],
-    "topics": ["list", "of", "strings"],
-    "writing_style_notes": "string"
+    "keywords": ["list", "of", "strings (from bio AND posts)"],
+    "topics": ["list", "of", "strings (from bio AND posts)"],
+    "writing_style_notes": "string (Consider bio and posts)"
   }},
-  "entity_extraction": {{
+  "entity_extraction": {{ // Extract from bio AND post captions
     "mentions": ["list", "of", "strings"],
     "hashtags": ["list", "of", "strings"],
     "urls": ["list", "of", "strings"],
@@ -373,34 +328,33 @@ def extract_json_data_llm(api_key, username, biography_text):
     "technologies_tools": ["list", "of", "strings"],
     "projects_products": ["list", "of", "strings"]
   }},
-  "network_connections_explicit": {{ // Graph based *only* on extracted_entities AND direct interpretations of bio text
+  "network_connections_explicit": {{ // Base on bio AND post content (mentions, captions, topics)
     "nodes": [
       {{"id": "profile_owner", "label": "{username}", "type": "ProfileOwner"}},
-      // {{"id": "unique_id", "label": "Display Name", "type": "EntityType"}}
-      // CRITICAL: Include nodes representing activities/skills/concepts directly stated or clearly implied in the bio.
+      // Add nodes from entity_extraction (bio+posts) and interpretable concepts/activities from bio/posts.
     ],
     "edges": [
-      // {{"from": "source_id", "to": "target_id", "label": "relationship_type", "context": "from bio text"}}
-      // CRITICAL: Connect the profile_owner to nodes representing activities/skills/concepts directly from the bio.
+      // Connect profile_owner to nodes representing activities/skills/concepts/mentions from bio AND posts.
+      // Connect extracted entities to each other if relationships are implied in bio/posts.
     ]
   }},
-  "inferred_analysis": {{
-    "potential_interests": [ {{ "interest": "string", "reasoning": "string", "confidence": "Low/Medium/High" }} ],
-    "potential_affiliations": [ {{ "affiliation": "string", "reasoning": "string", "confidence": "Low/Medium/High" }} ],
-    "potential_skills": [ {{ "skill": "string", "reasoning": "string", "confidence": "Low/Medium/High" }} ],
-    "potential_locations": [ {{ "location": "string", "reasoning": "string", "confidence": "Low/Medium/High" }} ]
+  "inferred_analysis": {{ // Infer based on bio AND post content
+    "potential_interests": [ {{ "interest": "string", "reasoning": "string (cite bio or post)", "confidence": "Low/Medium/High" }} ],
+    "potential_affiliations": [ {{ "affiliation": "string", "reasoning": "string (cite bio or post)", "confidence": "Low/Medium/High" }} ],
+    "potential_skills": [ {{ "skill": "string", "reasoning": "string (cite bio or post)", "confidence": "Low/Medium/High" }} ],
+    "potential_locations": [ {{ "location": "string", "reasoning": "string (cite bio or post)", "confidence": "Low/Medium/High" }} ]
   }},
-  "threat_indicators_potential": {{
+  "threat_indicators_potential": {{ // Analyze bio AND post captions
     "violent_extremism_keywords": ["list", "of", "strings"],
     "misinformation_themes": ["list", "of", "strings"],
     "hate_speech_indicators": ["list", "of", "strings"],
     "self_harm_indicators": ["list", "of", "strings"],
-    "overall_risk_assessment_llm": "string" // Include disclaimer in reasoning
+    "overall_risk_assessment_llm": "string (Consider bio and posts; include disclaimer)"
   }},
-  "cross_platform_links_potential": [
+  "cross_platform_links_potential": [ // Look for clues in bio OR posts
       {{ "platform": "string", "identifier": "string", "reasoning": "string" }}
   ],
-  "suggestions_for_investigation": {{
+  "suggestions_for_investigation": {{ // Base on combined analysis
     "similar_users_suggested": [ {{ "suggestion": "string", "reasoning": "string" }} ],
     "relevant_hashtags_suggested": [ {{ "suggestion": "string", "reasoning": "string" }} ],
     "topics_to_monitor": ["list", "of", "strings"]
@@ -408,15 +362,15 @@ def extract_json_data_llm(api_key, username, biography_text):
 }}
 
 **Instructions & Constraints:**
-1.  **Prioritize Forensic Relevance.**
-2.  **Populate All Fields.** Use empty lists `[]` or `null`/`"Not Applicable"` if no data.
-3.  **Mark Speculation:** Clearly distinguish `entity_extraction`/`network_connections_explicit` (from bio text) from inferred/generated sections.
-4.  **Comprehensive & Inventive Explicit Graph:** Make `network_connections_explicit` as detailed and interconnected as possible based *only* on `entity_extraction` AND creative, direct interpretations of activities/skills/concepts in the bio text. **Be extremely inventive: Interpret every possible noun/verb/concept (e.g., "build", "stuff", "create", "design", "travel", "music", "art") as an explicit node (e.g., type "Stated Activity", "Stated Skill", "Stated Concept"). Connect these nodes exhaustively to the `profile_owner` node with appropriate relationship labels (e.g., "performs", "interested_in", "mentions"). Aim to graphically represent *all* explicit bio content, even single words, if interpretable.** Always include `profile_owner`.
-5.  **Generate Boldly:** Populate inferred/generated sections even if bio is sparse.
-6.  **VALID JSON ONLY:** Output MUST be a single, valid JSON object matching this structure. No extra text, comments, or explanations outside the JSON.
+1.  **Analyze BOTH Bio and Post Summary:** Integrate information from both sources throughout the JSON structure.
+2.  **Populate `initial_posts_summary`:** Accurately reflect the provided post summary, extracting key fields and performing LLM analysis (entity/topic detection) *per post*.
+3.  **Enhance Other Sections:** Use post information (captions, timestamps, types) to enrich `linguistic_analysis`, `entity_extraction`, `network_connections_explicit`, `inferred_analysis`, and `threat_indicators_potential`.
+4.  **Inventive Explicit Graph:** Include nodes/edges derived from post content (mentions, topics, activities described in captions) in `network_connections_explicit`. Connect them logically to `profile_owner` or other entities.
+5.  **Populate All Fields:** Use empty lists `[]` or `null`/`"Not Applicable"`.
+6.  **VALID JSON ONLY:** Output MUST be a single, valid JSON object. No extra text.
 
 """
-    print("Generating structured forensic JSON data...")
+    print("Generating structured forensic JSON data (with post analysis)...")
     json_string = _call_llm(api_key, model, json_prompt, max_tokens, temperature)
 
     # Default error structure for JSON
@@ -428,11 +382,26 @@ def extract_json_data_llm(api_key, username, biography_text):
         return error_json
 
     try:
-        analysis_data = json.loads(json_string)
+        # Attempt to find JSON block even if there's surrounding text
+        json_match = None
+        if '```json' in json_string:
+            json_match = json_string.split('```json', 1)[1].rsplit('```', 1)[0]
+        elif '{' in json_string and '}' in json_string:
+             # Basic heuristic: find first { and last }
+             start = json_string.find('{')
+             end = json_string.rfind('}')
+             if start != -1 and end != -1 and end > start:
+                  json_match = json_string[start:end+1]
+
+        if not json_match:
+            # Fallback to trying the whole string if no clear block found
+            json_match = json_string
+
+        analysis_data = json.loads(json_match)
         print("  Successfully parsed forensic JSON data.")
         # Basic validation (can be expanded significantly)
-        required_keys = ["analysis_metadata", "profile_context", "linguistic_analysis",
-                         "entity_extraction", "network_connections_explicit",
+        required_keys = ["analysis_metadata", "profile_context", "initial_posts_summary", # Added new key check
+                         "linguistic_analysis", "entity_extraction", "network_connections_explicit",
                          "inferred_analysis", "threat_indicators_potential",
                          "cross_platform_links_potential", "suggestions_for_investigation"]
         if all(key in analysis_data for key in required_keys):
@@ -448,13 +417,15 @@ def extract_json_data_llm(api_key, username, biography_text):
 
              return analysis_data
         else:
-            print("  Warning: Parsed JSON missing some top-level forensic keys.")
-            error_json["error"] = "Parsed JSON missing required forensic keys"
+            missing_keys = [key for key in required_keys if key not in analysis_data]
+            print(f"  Warning: Parsed JSON missing some top-level forensic keys: {missing_keys}")
+            error_json["error"] = f"Parsed JSON missing required forensic keys: {missing_keys}"
             error_json["raw_response"] = json_string # Include raw response for debugging
             return error_json
 
     except json.JSONDecodeError as e:
         print(f"  Error: Failed to parse LLM response as JSON. {e}")
+        print(f"  Problematic JSON string snippet: {json_string[:500]}...") # Log snippet
         error_json["error"] = "LLM response was not valid JSON"
         error_json["raw_response"] = json_string # Include raw response for debugging
         return error_json
@@ -467,14 +438,21 @@ def extract_json_data_llm(api_key, username, biography_text):
 
 # --- Main Function for Parallel Execution ---
 
-def run_all_analyses_parallel(username, biography_text):
-    """Runs the three LLM analysis functions in parallel."""
-    if not API_KEY or "YOUR_" in API_KEY:
-         print("CRITICAL ERROR: API_KEY is missing or is a placeholder in scraper_utils.py")
+def run_all_analyses_parallel(username, biography_text, post_edges): # Added post_edges
+    """Runs the three LLM analysis functions in parallel, incorporating post data."""
+    
+    # Check for API key in environment variable
+    api_key = API_KEY
+    if not api_key:
+         print("CRITICAL ERROR: OPENROUTER_API_KEY environment variable is not set.")
+         print("Please set it before running the script: ")
+         print("  export OPENROUTER_API_KEY='your-api-key'     # For Linux/macOS")
+         print("  set OPENROUTER_API_KEY=your-api-key          # For Windows cmd")
+         print("  $env:OPENROUTER_API_KEY='your-api-key'       # For Windows PowerShell")
          return {
-             "report": "API Key Missing. Cannot run analysis.",
-             "forensic_notes": "API Key Missing.",
-             "json_data": {"error": "API Key Missing."}
+             "report": "API Key Missing. Cannot run analysis. Please set the OPENROUTER_API_KEY environment variable.",
+             "forensic_notes": "API Key Missing. Please set the OPENROUTER_API_KEY environment variable.",
+             "json_data": {"error": "API Key Missing. Please set the OPENROUTER_API_KEY environment variable."}
          }
 
     # Ensure biography_text is a string, handle None case
@@ -487,15 +465,15 @@ def run_all_analyses_parallel(username, biography_text):
     }
 
     start_time = time.time()
-    print(f"--- Starting parallel LLM analyses for {username} ---")
+    print(f"--- Starting parallel LLM analyses for {username} (with post data) ---")
 
     # Use ThreadPoolExecutor for I/O-bound tasks (API calls)
     # NOTE: Actual parallelism depends on the execution environment.
     with ThreadPoolExecutor(max_workers=3) as executor:
-        # Submit tasks
-        future_report = executor.submit(generate_report_llm, API_KEY, username, biography_text)
-        future_forensic = executor.submit(generate_forensic_analysis_llm, API_KEY, username, biography_text)
-        future_json = executor.submit(extract_json_data_llm, API_KEY, username, biography_text)
+        # Submit tasks, passing post_edges to each and using the secure api_key
+        future_report = executor.submit(generate_report_llm, api_key, username, biography_text, post_edges)
+        future_forensic = executor.submit(generate_forensic_analysis_llm, api_key, username, biography_text, post_edges)
+        future_json = executor.submit(extract_json_data_llm, api_key, username, biography_text, post_edges)
 
         # Store futures with identifiers
         futures = {
